@@ -14,6 +14,10 @@ public enum ImapMailboxAttribute: Sendable, Equatable {
     case nonExistent
     case subscribed
     case remote
+    case noRename
+    case readOnly
+    case noMail
+    case noAccess
     case inbox
     case all
     case archive
@@ -22,6 +26,7 @@ public enum ImapMailboxAttribute: Sendable, Equatable {
     case junk
     case sent
     case trash
+    case important
     case other(String)
 
     public init(rawValue: String) {
@@ -46,6 +51,14 @@ public enum ImapMailboxAttribute: Sendable, Equatable {
             self = .subscribed
         case "REMOTE":
             self = .remote
+        case "NORENAME":
+            self = .noRename
+        case "READ-ONLY", "READONLY":
+            self = .readOnly
+        case "NOMAIL":
+            self = .noMail
+        case "NOACCESS":
+            self = .noAccess
         case "INBOX":
             self = .inbox
         case "ALL":
@@ -62,8 +75,19 @@ public enum ImapMailboxAttribute: Sendable, Equatable {
             self = .sent
         case "TRASH":
             self = .trash
+        case "IMPORTANT":
+            self = .important
         default:
             self = .other(normalized)
+        }
+    }
+
+    public var isSpecialUse: Bool {
+        switch self {
+        case .all, .archive, .drafts, .flagged, .junk, .sent, .trash, .important:
+            return true
+        default:
+            return false
         }
     }
 }
@@ -85,6 +109,18 @@ public struct ImapMailbox: Sendable, Equatable {
 
     public func hasAttribute(_ attribute: ImapMailboxAttribute) -> Bool {
         attributes.contains(attribute)
+    }
+
+    public var specialUse: ImapMailboxAttribute? {
+        attributes.first { $0.isSpecialUse }
+    }
+
+    public var isSelectable: Bool {
+        !hasAttribute(.noSelect) && !hasAttribute(.nonExistent)
+    }
+
+    public var hasChildren: Bool {
+        hasAttribute(.hasChildren)
     }
 }
 

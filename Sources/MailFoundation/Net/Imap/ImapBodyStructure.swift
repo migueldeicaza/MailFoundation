@@ -20,11 +20,13 @@ public struct ImapBodyPart: Sendable, Equatable {
     public let encoding: String?
     public let size: Int?
     public let lines: Int?
+    public let md5: String?
     public let envelopeRaw: String?
     public let embedded: ImapBodyStructure?
     public let disposition: ImapContentDisposition?
     public let language: [String]?
     public let location: String?
+    public let extensions: [String]
 }
 
 public struct ImapMultipart: Sendable, Equatable {
@@ -34,6 +36,7 @@ public struct ImapMultipart: Sendable, Equatable {
     public let disposition: ImapContentDisposition?
     public let language: [String]?
     public let location: String?
+    public let extensions: [String]
 }
 
 public indirect enum ImapBodyStructure: Sendable, Equatable {
@@ -222,6 +225,7 @@ private func parseMultipart(_ items: [ImapBodyNode]) -> ImapBodyStructure? {
     let disposition = parseDisposition(from: items, index: &index)
     let language = parseLanguage(from: items, index: &index)
     let location = parseLocation(from: items, index: &index)
+    let extensions = parseExtensions(from: items, index: &index)
 
     let multipart = ImapMultipart(
         parts: parts,
@@ -229,7 +233,8 @@ private func parseMultipart(_ items: [ImapBodyNode]) -> ImapBodyStructure? {
         parameters: parameters,
         disposition: disposition,
         language: language,
-        location: location
+        location: location,
+        extensions: extensions
     )
     return .multipart(multipart)
 }
@@ -266,9 +271,11 @@ private func parseSingle(_ items: [ImapBodyNode]) -> ImapBodyStructure? {
         }
     }
 
+    let md5 = parseOptionalString(from: items, index: &index)
     let disposition = parseDisposition(from: items, index: &index)
     let language = parseLanguage(from: items, index: &index)
     let location = parseLocation(from: items, index: &index)
+    let extensions = parseExtensions(from: items, index: &index)
 
     let part = ImapBodyPart(
         type: type,
@@ -279,11 +286,13 @@ private func parseSingle(_ items: [ImapBodyNode]) -> ImapBodyStructure? {
         encoding: encoding,
         size: size,
         lines: lines,
+        md5: md5,
         envelopeRaw: envelopeRaw,
         embedded: embedded,
         disposition: disposition,
         language: language,
-        location: location
+        location: location,
+        extensions: extensions
     )
     return .single(part)
 }
@@ -303,6 +312,10 @@ private func parseParameters(_ node: ImapBodyNode) -> [String: String]? {
 
 private func parseDisposition(from items: [ImapBodyNode], index: inout Int) -> ImapContentDisposition? {
     guard index < items.count else { return nil }
+    if case .nilValue = items[index] {
+        index += 1
+        return nil
+    }
     guard case let .list(values) = items[index], values.count >= 1 else { return nil }
     guard let type = nodeString(values[0]) else { return nil }
     var parameters: [String: String] = [:]
@@ -320,6 +333,10 @@ private func parseLanguage(from items: [ImapBodyNode], index: inout Int) -> [Str
         index += 1
         return [value]
     }
+    if case .nilValue = node {
+        index += 1
+        return nil
+    }
     if case let .list(values) = node {
         let langs = values.compactMap(nodeString)
         index += 1
@@ -334,7 +351,35 @@ private func parseLocation(from items: [ImapBodyNode], index: inout Int) -> Stri
         index += 1
         return value
     }
+    if case .nilValue = items[index] {
+        index += 1
+        return nil
+    }
     return nil
+}
+
+private func parseOptionalString(from items: [ImapBodyNode], index: inout Int) -> String? {
+    guard index < items.count else { return nil }
+    let node = items[index]
+    if case .nilValue = node {
+        index += 1
+        return nil
+    }
+    if let value = nodeString(node) {
+        index += 1
+        return value
+    }
+    return nil
+}
+
+private func parseExtensions(from items: [ImapBodyNode], index: inout Int) -> [String] {
+    guard index < items.count else { return [] }
+    var result: [String] = []
+    while index < items.count {
+        result.append(renderNode(items[index]))
+        index += 1
+    }
+    return result
 }
 
 private func nodeString(_ node: ImapBodyNode) -> String? {

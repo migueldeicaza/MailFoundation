@@ -155,6 +155,7 @@ func imapMailboxListParsing() {
 
     let mailbox = list?.toMailbox()
     #expect(mailbox?.hasAttribute(.hasNoChildren) == true)
+    #expect(mailbox?.isSelectable == true)
 
     let lsubLine = "* LSUB () NIL INBOX"
     let lsub = ImapMailboxListResponse.parse(lsubLine)
@@ -162,6 +163,12 @@ func imapMailboxListParsing() {
     #expect(lsub?.attributes.isEmpty == true)
     #expect(lsub?.delimiter == nil)
     #expect(lsub?.name == "INBOX")
+
+    let specialLine = "* LIST (\\NoSelect \\HasChildren \\All) \"/\" \"[Gmail]\""
+    let special = ImapMailboxListResponse.parse(specialLine)?.toMailbox()
+    #expect(special?.hasAttribute(.noSelect) == true)
+    #expect(special?.hasChildren == true)
+    #expect(special?.specialUse == .all)
 }
 
 @Test("IMAP bodystructure parsing")
@@ -184,6 +191,29 @@ func imapBodyStructureParsing() {
         #expect(multipart.parts.count == 2)
         #expect(multipart.subtype.uppercased() == "ALTERNATIVE")
         #expect(multipart.parameters["BOUNDARY"] == "abc")
+    } else {
+        #expect(Bool(false))
+    }
+
+    let extendedRaw = "(\"TEXT\" \"PLAIN\" (\"CHARSET\" \"UTF-8\") NIL NIL \"7BIT\" 12 1 \"md5hash\" (\"INLINE\" (\"FILENAME\" \"a.txt\")) (\"en\" \"fr\") \"loc\" 99)"
+    let extended = ImapBodyStructure.parse(extendedRaw)
+    if case let .single(part)? = extended {
+        #expect(part.md5 == "md5hash")
+        #expect(part.disposition?.type.uppercased() == "INLINE")
+        #expect(part.disposition?.parameters["FILENAME"] == "a.txt")
+        #expect(part.language == ["en", "fr"])
+        #expect(part.location == "loc")
+        #expect(part.extensions == ["99"])
+    } else {
+        #expect(Bool(false))
+    }
+
+    let messageRaw = "(\"MESSAGE\" \"RFC822\" (\"NAME\" \"msg\") NIL NIL \"7BIT\" 123 (\"Wed, 01 Jan 2020 00:00:00 +0000\" \"Hello\" ((\"Alice\" NIL \"alice\" \"example.com\")) NIL NIL ((\"Bob\" NIL \"bob\" \"example.com\")) NIL NIL NIL \"<msgid>\") (\"TEXT\" \"PLAIN\" (\"CHARSET\" \"UTF-8\") NIL NIL \"7BIT\" 12 1) 10)"
+    let message = ImapBodyStructure.parse(messageRaw)
+    if case let .single(part)? = message {
+        #expect(part.envelopeRaw?.contains("Hello") == true)
+        #expect(part.embedded != nil)
+        #expect(part.lines == 10)
     } else {
         #expect(Bool(false))
     }
@@ -223,6 +253,40 @@ func imapEnvelopeParsing() {
     } else {
         #expect(Bool(false))
     }
+}
+
+@Test("IMAP fetch body section parsing")
+func imapFetchBodySectionParsing() {
+    let section = ImapFetchBodySection.parse("1.2.HEADER")
+    #expect(section?.part == [1, 2])
+    #expect(section?.subsection == .header)
+
+    let fields = ImapFetchBodySection.parse("HEADER.FIELDS (Subject From)")
+    #expect(fields?.part.isEmpty == true)
+    #expect(fields?.subsection == .headerFields(["Subject", "From"]))
+
+    let notFields = ImapFetchBodySection.parse("1.TEXT")
+    #expect(notFields?.part == [1])
+    #expect(notFields?.subsection == .text)
+}
+
+@Test("IMAP fetch body section response parsing")
+func imapFetchBodySectionResponseParsing() {
+    let line = "* 1 FETCH (BODY[HEADER] {5}"
+    let message = ImapLiteralMessage(line: line, response: ImapResponse.parse(line), literal: Array("Hello".utf8))
+    let parsed = ImapFetchBodySectionResponse.parse(message)
+    #expect(parsed?.sequence == 1)
+    #expect(parsed?.peek == false)
+    #expect(parsed?.section?.subsection == .header)
+    #expect(parsed?.data == Array("Hello".utf8))
+
+    let linePeek = "* 2 FETCH (BODY.PEEK[1.2.TEXT]<0.3> {3}"
+    let messagePeek = ImapLiteralMessage(line: linePeek, response: ImapResponse.parse(linePeek), literal: Array("abc".utf8))
+    let parsedPeek = ImapFetchBodySectionResponse.parse(messagePeek)
+    #expect(parsedPeek?.peek == true)
+    #expect(parsedPeek?.section?.part == [1, 2])
+    #expect(parsedPeek?.section?.subsection == .text)
+    #expect(parsedPeek?.partial == ImapFetchPartial(start: 0, length: 3))
 }
 
 @Test("SearchQuery serialization")

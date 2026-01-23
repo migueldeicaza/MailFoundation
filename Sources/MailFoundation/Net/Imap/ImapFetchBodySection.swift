@@ -83,6 +83,36 @@ public struct ImapFetchBodySection: Sendable, Equatable {
         }
         return result
     }
+
+    public static func parse(_ text: String) -> ImapFetchBodySection? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return ImapFetchBodySection() }
+        let components = trimmed.split(separator: ".", omittingEmptySubsequences: false)
+        guard !components.isEmpty else { return nil }
+
+        var part: [Int] = []
+        var subsectionParts: [Substring] = []
+        var encounteredNonNumeric = false
+
+        for component in components {
+            if !encounteredNonNumeric, let value = Int(component), value > 0 {
+                part.append(value)
+            } else {
+                encounteredNonNumeric = true
+                subsectionParts.append(component)
+            }
+        }
+
+        if subsectionParts.isEmpty {
+            return ImapFetchBodySection(part: part, subsection: nil)
+        }
+
+        let subsectionText = subsectionParts.joined(separator: ".")
+        guard let subsection = ImapFetchBodySubsection.parse(subsectionText) else {
+            return nil
+        }
+        return ImapFetchBodySection(part: part, subsection: subsection)
+    }
 }
 
 public enum ImapFetchBody {
@@ -98,5 +128,43 @@ public enum ImapFetchBody {
             result += "<\(partial.start).\(partial.length)>"
         }
         return result
+    }
+}
+
+private extension ImapFetchBodySubsection {
+    static func parse(_ text: String) -> ImapFetchBodySubsection? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let upper = trimmed.uppercased()
+        if upper.hasPrefix("HEADER.FIELDS.NOT") {
+            guard let fields = parseFieldList(from: trimmed, prefix: "HEADER.FIELDS.NOT") else { return nil }
+            return .headerFieldsNot(fields)
+        }
+        if upper.hasPrefix("HEADER.FIELDS") {
+            guard let fields = parseFieldList(from: trimmed, prefix: "HEADER.FIELDS") else { return nil }
+            return .headerFields(fields)
+        }
+        if upper == "HEADER" {
+            return .header
+        }
+        if upper == "TEXT" {
+            return .text
+        }
+        if upper == "MIME" {
+            return .mime
+        }
+        return nil
+    }
+
+    static func parseFieldList(from text: String, prefix: String) -> [String]? {
+        let range = text.range(of: prefix, options: [.caseInsensitive, .anchored])
+        guard let range else { return nil }
+        let remainder = text[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard remainder.first == "(",
+              let endIndex = remainder.lastIndex(of: ")") else {
+            return nil
+        }
+        let inner = remainder[remainder.index(after: remainder.startIndex)..<endIndex]
+        let fields = inner.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        return fields
     }
 }
