@@ -1063,6 +1063,27 @@ func messageSummaryHeaderAndPreviewParsing() {
     #expect(summary?.references?.ids == ["<one@id>", "<two@id>"])
     #expect(summary?.headers["SUBJECT"] == "Test")
     #expect(summary?.previewText == "Hello preview body")
+    #expect(summary?.headerFetchKind == .all)
+}
+
+@Test("Message summary HTML preview decoding")
+func messageSummaryHtmlPreviewDecoding() {
+    let line = "* 1 FETCH (UID 11)"
+    let fetch = ImapFetchResponse.parse(line)
+    let headerBytes = Array("Content-Type: text/html\r\n\r\n".utf8)
+    let htmlBytes = Array("<html><body><b>Hello</b> world</body></html>".utf8)
+
+    let headerSection = ImapFetchBodySection.header
+    let textSection = ImapFetchBodySection.text
+    let headerPayload = ImapFetchBodySectionPayload(section: headerSection, peek: true, partial: nil, data: headerBytes)
+    let textPayload = ImapFetchBodySectionPayload(section: textSection, peek: true, partial: nil, data: htmlBytes)
+
+    let headerKey = ImapFetchBodyKey(section: headerSection.serialize(), peek: true, partial: nil)
+    let textKey = ImapFetchBodyKey(section: textSection.serialize(), peek: true, partial: nil)
+    let bodyMap = ImapFetchBodyMap(sequence: 1, payloads: [headerPayload, textPayload], bodies: [headerKey: headerBytes, textKey: htmlBytes])
+
+    let summary = fetch.flatMap { MessageSummary.build(fetch: $0, bodyMap: bodyMap) }
+    #expect(summary?.previewText == "Hello world")
 }
 
 @Test("LineBuffer incremental")

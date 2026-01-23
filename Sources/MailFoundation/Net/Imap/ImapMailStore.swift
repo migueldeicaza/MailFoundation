@@ -52,22 +52,53 @@ public final class ImapMailStore: MailServiceBase<ImapResponse>, MailStore {
     }
 }
 
-public final class ImapFolder: MailFolder {
+public final class ImapFolder: MailFolderBase {
     public let mailbox: ImapMailbox
-    public let fullName: String
-    public let name: String
 
     private let session: ImapSession
 
     public init(session: ImapSession, mailbox: ImapMailbox) {
         self.session = session
         self.mailbox = mailbox
-        self.fullName = mailbox.decodedName
-        if let delimiter = mailbox.delimiter, let last = mailbox.decodedName.split(separator: Character(delimiter)).last {
-            self.name = String(last)
-        } else {
-            self.name = mailbox.decodedName
+        super.init(fullName: mailbox.decodedName, delimiter: mailbox.delimiter)
+    }
+
+    public var rawName: String {
+        mailbox.name
+    }
+
+    public func open(_ access: FolderAccess) throws -> ImapResponse {
+        let response: ImapResponse
+        switch access {
+        case .readOnly:
+            response = try session.examine(mailbox: mailbox.name)
+        case .readWrite:
+            response = try session.select(mailbox: mailbox.name)
         }
+        updateOpenState(access)
+        return response
+    }
+
+    public func openReadOnly() throws -> ImapResponse {
+        try open(.readOnly)
+    }
+
+    public func openReadWrite() throws -> ImapResponse {
+        try open(.readWrite)
+    }
+
+    public func close() throws -> ImapResponse {
+        let response = try session.close()
+        updateOpenState(nil)
+        return response
+    }
+
+    public func expunge() throws -> ImapResponse {
+        try session.expunge()
+    }
+
+    public func status(items: [String]) throws -> ImapStatusResponse {
+        try session.status(mailbox: mailbox.name, items: items)
     }
 
     public func fetchSummaries(_ set: String, request: FetchRequest, previewLength: Int = 512) throws -> [MessageSummary] {

@@ -67,16 +67,51 @@ public actor AsyncImapFolder: AsyncMailFolder {
     public nonisolated let name: String
 
     private let session: AsyncImapSession
+    private var access: FolderAccess?
 
     public init(session: AsyncImapSession, mailbox: ImapMailbox) {
         self.session = session
         self.mailbox = mailbox
         self.fullName = mailbox.decodedName
-        if let delimiter = mailbox.delimiter, let last = mailbox.decodedName.split(separator: Character(delimiter)).last {
-            self.name = String(last)
-        } else {
-            self.name = mailbox.decodedName
+        self.name = MailFolderBase.computeName(mailbox.decodedName, delimiter: mailbox.delimiter)
+    }
+
+    public var isOpen: Bool {
+        access != nil
+    }
+
+    public func open(_ access: FolderAccess) async throws -> ImapResponse? {
+        let response: ImapResponse?
+        switch access {
+        case .readOnly:
+            response = try await session.examine(mailbox: mailbox.name)
+        case .readWrite:
+            response = try await session.select(mailbox: mailbox.name)
         }
+        self.access = access
+        return response
+    }
+
+    public func openReadOnly() async throws -> ImapResponse? {
+        try await open(.readOnly)
+    }
+
+    public func openReadWrite() async throws -> ImapResponse? {
+        try await open(.readWrite)
+    }
+
+    public func close() async throws -> ImapResponse? {
+        let response = try await session.close()
+        access = nil
+        return response
+    }
+
+    public func expunge(maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await session.expunge(maxEmptyReads: maxEmptyReads)
+    }
+
+    public func status(items: [String], maxEmptyReads: Int = 10) async throws -> ImapStatusResponse {
+        try await session.status(mailbox: mailbox.name, items: items, maxEmptyReads: maxEmptyReads)
     }
 
     public func fetchSummaries(_ set: String, request: FetchRequest, previewLength: Int = 512) async throws -> [MessageSummary] {
