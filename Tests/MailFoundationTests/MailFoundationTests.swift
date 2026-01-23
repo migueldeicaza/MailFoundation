@@ -77,6 +77,18 @@ func uniqueIdSetParsing() throws {
     #expect(UniqueIdSet.tryParse("0") == nil)
 }
 
+@Test("SequenceSet parsing")
+func sequenceSetParsing() throws {
+    let set = try SequenceSet.parse("1:3,5,*")
+    #expect(set.description == "1:3,5,*")
+    #expect(set.contains(1))
+    #expect(set.contains(UInt32.max))
+    #expect(SequenceSet.tryParse("0") == nil)
+
+    let spaced = try SequenceSet.parse(" 2 : 4 , 6 ")
+    #expect(spaced.description == "2:4,6")
+}
+
 @Test("UniqueIdRange utilities")
 func uniqueIdRangeUtilities() {
     let range = UniqueIdRange(validity: 2, start: 10, end: 12)
@@ -115,6 +127,21 @@ func uniqueIdMapMapping() {
 
     let merged = dictMap.appending(contentsOf: pairsMap)
     #expect(merged.destination.last?.id == 40)
+}
+
+@Test("IMAP command helpers")
+func imapCommandHelpers() throws {
+    let seqSet = try SequenceSet.parse("1:3")
+    let fetch = ImapCommandKind.fetch(seqSet, items: "FLAGS").command(tag: "A0001")
+    #expect(fetch.serialized == "A0001 FETCH 1:3 FLAGS\r\n")
+
+    let uidSet = UniqueIdSet([UniqueId(id: 1), UniqueId(id: 2)])
+    let uidFetch = ImapCommandKind.uidFetch(uidSet, items: "FLAGS").command(tag: "A0002")
+    #expect(uidFetch.serialized == "A0002 UID FETCH \(uidSet.description) FLAGS\r\n")
+
+    let query = SearchQuery.from("alice@example.com").and(.unseen)
+    let search = ImapCommandKind.search(query).command(tag: "A0003")
+    #expect(search.serialized == "A0003 SEARCH FROM \"alice@example.com\" UNSEEN\r\n")
 }
 
 @Test("SearchQuery serialization")
