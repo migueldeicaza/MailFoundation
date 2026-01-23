@@ -26,6 +26,7 @@ public actor AsyncPop3MailStore: AsyncMailStore {
     }
 
     public func disconnect() async {
+        await inbox.close()
         await session.disconnect()
         selectedFolderStorage = nil
         selectedAccessStorage = nil

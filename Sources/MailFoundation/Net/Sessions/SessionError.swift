@@ -7,6 +7,7 @@
 public enum SessionError: Error, Sendable, Equatable {
     case timeout
     case transportWriteFailed
+    case invalidState(expected: MailServiceState, actual: MailServiceState)
     case startTlsNotSupported
     case smtpError(code: Int, message: String)
     case pop3Error(message: String)

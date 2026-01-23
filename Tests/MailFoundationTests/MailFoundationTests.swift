@@ -1146,6 +1146,58 @@ func imapStoreSelectedFolderOpenClose() throws {
     #expect(folder.isOpen == false)
 }
 
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async POP3 store selected folder after authenticate")
+func asyncPop3StoreSelectedFolderAfterAuthenticate() async throws {
+    let transport = AsyncStreamTransport()
+    let store = AsyncPop3MailStore(transport: transport)
+
+    let connectTask = Task { try await store.connect() }
+    await transport.yieldIncoming(Array("+OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("+OK\r\n".utf8))
+    await transport.yieldIncoming(Array("+OK\r\n".utf8))
+    _ = try await authTask.value
+
+    let selectedFolder = await store.selectedFolder
+    #expect(selectedFolder === store.inbox)
+    #expect(await store.selectedAccess == .readOnly)
+    #expect(await store.inbox.isOpen == true)
+
+    await store.disconnect()
+    #expect(await store.selectedFolder == nil)
+    #expect(await store.selectedAccess == nil)
+    #expect(await store.inbox.isOpen == false)
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP store selected folder open/close")
+func asyncImapStoreSelectedFolderOpenClose() async throws {
+    let transport = AsyncStreamTransport()
+    let store = AsyncImapMailStore(transport: transport)
+
+    let connectTask = Task { try await store.connect() }
+    await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let openTask = Task { try await store.openFolder("INBOX", access: .readOnly) }
+    await transport.yieldIncoming(Array("A0001 OK EXAMINE\r\n".utf8))
+    let folder = try await openTask.value
+    let selectedFolder = await store.selectedFolder
+    #expect(selectedFolder === folder)
+    #expect(await store.selectedAccess == .readOnly)
+    #expect(await folder.isOpen == true)
+
+    let closeTask = Task { try await store.closeFolder() }
+    await transport.yieldIncoming(Array("A0002 OK CLOSE\r\n".utf8))
+    _ = try await closeTask.value
+    #expect(await store.selectedFolder == nil)
+    #expect(await store.selectedAccess == nil)
+    #expect(await folder.isOpen == false)
+}
+
 @Test("LineBuffer incremental")
 func lineBufferIncremental() {
     var buffer = LineBuffer()
@@ -1701,6 +1753,11 @@ func asyncPop3SessionExtraCommands() async throws {
     await transport.yieldIncoming(Array("+OK Ready\r\n".utf8))
     _ = try await connectTask.value
 
+    let authTask = Task { try await session.authenticate(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("+OK\r\n".utf8))
+    await transport.yieldIncoming(Array("+OK\r\n".utf8))
+    _ = try await authTask.value
+
     let noopTask = Task { try await session.noop() }
     await transport.yieldIncoming(Array("+OK\r\n".utf8))
     _ = try await noopTask.value
@@ -1737,9 +1794,9 @@ func asyncPop3SessionExtraCommands() async throws {
     await transport.yieldIncoming(Array("+OK\r\n".utf8))
     _ = try await apopTask.value
 
-    let authTask = Task { try await session.auth(mechanism: "PLAIN") }
+    let saslTask = Task { try await session.auth(mechanism: "PLAIN") }
     await transport.yieldIncoming(Array("+OK\r\n".utf8))
-    _ = try await authTask.value
+    _ = try await saslTask.value
 }
 
 @available(macOS 10.15, iOS 13.0, *)
@@ -1772,6 +1829,11 @@ func asyncPop3SessionListings() async throws {
     await transport.yieldIncoming(Array("+OK Ready\r\n".utf8))
     _ = try await connectTask.value
 
+    let authTask = Task { try await session.authenticate(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("+OK\r\n".utf8))
+    await transport.yieldIncoming(Array("+OK\r\n".utf8))
+    _ = try await authTask.value
+
     let statTask = Task { try await session.stat() }
     await transport.yieldIncoming(Array("+OK 2 320\r\n".utf8))
     let stat = try await statTask.value
@@ -1786,6 +1848,24 @@ func asyncPop3SessionListings() async throws {
     await transport.yieldIncoming(Array("+OK\r\n1 uid1\r\n.\r\n".utf8))
     let uidl = try await uidlTask.value
     #expect(uidl.first?.uid == "uid1")
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async POP3 session requires authentication for STAT")
+func asyncPop3SessionRequiresAuthentication() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncPop3Session(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("+OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    do {
+        _ = try await session.stat()
+        #expect(Bool(false))
+    } catch let error as SessionError {
+        #expect(error == .invalidState(expected: .authenticated, actual: .connected))
+    }
 }
 
 @available(macOS 10.15, iOS 13.0, *)
@@ -2276,12 +2356,15 @@ func syncPop3SessionFlow() throws {
     let transport = TestTransport(incoming: [
         Array("+OK Ready\r\n".utf8),
         Array("+OK\r\nUSER\r\n.\r\n".utf8),
+        Array("+OK\r\n".utf8),
+        Array("+OK\r\n".utf8),
         Array("+OK 2 320\r\n".utf8)
     ])
     let session = Pop3Session(transport: transport, maxReads: 3)
     _ = try session.connect()
     let caps = try session.capability()
     #expect(caps.supports("USER") == true)
+    _ = try session.authenticate(user: "bob", password: "secret")
     let stat = try session.stat()
     #expect(stat.count == 2)
 }
@@ -2290,6 +2373,8 @@ func syncPop3SessionFlow() throws {
 func syncPop3SessionExtraCommands() throws {
     let transport = TestTransport(incoming: [
         Array("+OK Ready\r\n".utf8),
+        Array("+OK\r\n".utf8),
+        Array("+OK\r\n".utf8),
         Array("+OK\r\n".utf8),
         Array("+OK\r\n".utf8),
         Array("+OK\r\n".utf8),
@@ -2302,6 +2387,7 @@ func syncPop3SessionExtraCommands() throws {
     ])
     let session = Pop3Session(transport: transport, maxReads: 3)
     _ = try session.connect()
+    _ = try session.authenticate(user: "user", password: "pass")
     _ = try session.noop()
     _ = try session.rset()
     _ = try session.dele(2)
@@ -2315,6 +2401,16 @@ func syncPop3SessionExtraCommands() throws {
     #expect(topLines.first == "header1")
     _ = try session.apop(user: "user", digest: "digest")
     _ = try session.auth(mechanism: "PLAIN")
+}
+
+@Test("Sync POP3 session requires authentication for STAT")
+func syncPop3SessionRequiresAuthentication() throws {
+    let transport = TestTransport(incoming: [Array("+OK Ready\r\n".utf8)])
+    let session = Pop3Session(transport: transport, maxReads: 1)
+    _ = try session.connect()
+    #expect(throws: SessionError.invalidState(expected: .authenticated, actual: .connected)) {
+        _ = try session.stat()
+    }
 }
 
 @Test("Sync IMAP session flow")

@@ -97,6 +97,7 @@ public final class Pop3Session {
     }
 
     public func noop() throws -> Pop3Response {
+        try ensureAuthenticated()
         _ = client.send(.noop)
         try ensureWrite()
         guard let response = client.waitForResponse(maxReads: maxReads) else {
@@ -109,6 +110,7 @@ public final class Pop3Session {
     }
 
     public func rset() throws -> Pop3Response {
+        try ensureAuthenticated()
         _ = client.send(.rset)
         try ensureWrite()
         guard let response = client.waitForResponse(maxReads: maxReads) else {
@@ -121,6 +123,7 @@ public final class Pop3Session {
     }
 
     public func dele(_ index: Int) throws -> Pop3Response {
+        try ensureAuthenticated()
         _ = client.send(.dele(index))
         try ensureWrite()
         guard let response = client.waitForResponse(maxReads: maxReads) else {
@@ -133,6 +136,7 @@ public final class Pop3Session {
     }
 
     public func list(_ index: Int) throws -> Pop3ListItem {
+        try ensureAuthenticated()
         _ = client.send(.list(index))
         try ensureWrite()
         guard let response = client.waitForResponse(maxReads: maxReads) else {
@@ -148,6 +152,7 @@ public final class Pop3Session {
     }
 
     public func uidl(_ index: Int) throws -> Pop3UidlItem {
+        try ensureAuthenticated()
         _ = client.send(.uidl(index))
         try ensureWrite()
         guard let response = client.waitForResponse(maxReads: maxReads) else {
@@ -163,6 +168,7 @@ public final class Pop3Session {
     }
 
     public func retr(_ index: Int) throws -> [String] {
+        try ensureAuthenticated()
         client.expectMultilineResponse()
         _ = client.send(.retr(index))
         try ensureWrite()
@@ -180,6 +186,7 @@ public final class Pop3Session {
     }
 
     public func top(_ index: Int, lines: Int) throws -> [String] {
+        try ensureAuthenticated()
         client.expectMultilineResponse()
         _ = client.send(.top(index, lines: lines))
         try ensureWrite()
@@ -197,6 +204,7 @@ public final class Pop3Session {
     }
 
     public func list() throws -> [Pop3ListItem] {
+        try ensureAuthenticated()
         client.expectMultilineResponse()
         _ = client.send(.list(nil))
         try ensureWrite()
@@ -214,6 +222,7 @@ public final class Pop3Session {
     }
 
     public func uidl() throws -> [Pop3UidlItem] {
+        try ensureAuthenticated()
         client.expectMultilineResponse()
         _ = client.send(.uidl(nil))
         try ensureWrite()
@@ -231,6 +240,7 @@ public final class Pop3Session {
     }
 
     public func stat() throws -> Pop3StatResponse {
+        try ensureAuthenticated()
         _ = client.send(.stat)
         try ensureWrite()
         guard let response = client.waitForResponse(maxReads: maxReads) else {
@@ -273,6 +283,12 @@ public final class Pop3Session {
     private func ensureWrite() throws {
         if !client.lastWriteSucceeded {
             throw SessionError.transportWriteFailed
+        }
+    }
+
+    private func ensureAuthenticated() throws {
+        guard client.state == .authenticated else {
+            throw SessionError.invalidState(expected: .authenticated, actual: state)
         }
     }
 }

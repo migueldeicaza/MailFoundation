@@ -49,21 +49,25 @@ public actor AsyncPop3Session {
     }
 
     public func noop() async throws -> Pop3Response? {
+        try await ensureAuthenticated()
         _ = try await client.send(.noop)
         return await client.waitForResponse()
     }
 
     public func rset() async throws -> Pop3Response? {
+        try await ensureAuthenticated()
         _ = try await client.send(.rset)
         return await client.waitForResponse()
     }
 
     public func dele(_ index: Int) async throws -> Pop3Response? {
+        try await ensureAuthenticated()
         _ = try await client.send(.dele(index))
         return await client.waitForResponse()
     }
 
     public func list(_ index: Int) async throws -> Pop3ListItem {
+        try await ensureAuthenticated()
         _ = try await client.send(.list(index))
         guard let response = await client.waitForResponse() else {
             throw SessionError.timeout
@@ -75,6 +79,7 @@ public actor AsyncPop3Session {
     }
 
     public func uidl(_ index: Int) async throws -> Pop3UidlItem {
+        try await ensureAuthenticated()
         _ = try await client.send(.uidl(index))
         guard let response = await client.waitForResponse() else {
             throw SessionError.timeout
@@ -86,6 +91,7 @@ public actor AsyncPop3Session {
     }
 
     public func retr(_ index: Int) async throws -> [String] {
+        try await ensureAuthenticated()
         await client.expectMultilineResponse()
         _ = try await client.send(.retr(index))
         let event = try await waitForMultilineEvent()
@@ -102,6 +108,7 @@ public actor AsyncPop3Session {
     }
 
     public func top(_ index: Int, lines: Int) async throws -> [String] {
+        try await ensureAuthenticated()
         await client.expectMultilineResponse()
         _ = try await client.send(.top(index, lines: lines))
         let event = try await waitForMultilineEvent()
@@ -118,6 +125,7 @@ public actor AsyncPop3Session {
     }
 
     public func stat() async throws -> Pop3StatResponse {
+        try await ensureAuthenticated()
         _ = try await client.send(.stat)
         guard let response = await client.waitForResponse() else {
             throw SessionError.timeout
@@ -129,6 +137,7 @@ public actor AsyncPop3Session {
     }
 
     public func list() async throws -> [Pop3ListItem] {
+        try await ensureAuthenticated()
         await client.expectMultilineResponse()
         _ = try await client.send(.list(nil))
         let event = try await waitForMultilineEvent()
@@ -145,6 +154,7 @@ public actor AsyncPop3Session {
     }
 
     public func uidl() async throws -> [Pop3UidlItem] {
+        try await ensureAuthenticated()
         await client.expectMultilineResponse()
         _ = try await client.send(.uidl(nil))
         let event = try await waitForMultilineEvent()
@@ -189,6 +199,14 @@ public actor AsyncPop3Session {
             emptyReads += 1
         }
         throw SessionError.timeout
+    }
+
+    private func ensureAuthenticated() async throws {
+        let clientState = await client.state
+        guard clientState == .authenticated else {
+            let mailState: MailServiceState = clientState == .disconnected ? .disconnected : .connected
+            throw SessionError.invalidState(expected: .authenticated, actual: mailState)
+        }
     }
 }
 
