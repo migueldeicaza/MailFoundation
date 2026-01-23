@@ -242,6 +242,11 @@ public final class ImapSession {
         return result.responses
     }
 
+    public func uidStoreResult(_ set: UniqueIdSet, data: String) throws -> ImapStoreResult {
+        let result = try uidStoreWithQresync(set, data: data)
+        return ImapStoreResult(fetchResult: result)
+    }
+
     public func uidStoreWithQresync(_ set: UniqueIdSet, data: String) throws -> ImapFetchResult {
         let command = client.send(.uidStore(set.description, data))
         try ensureWrite()

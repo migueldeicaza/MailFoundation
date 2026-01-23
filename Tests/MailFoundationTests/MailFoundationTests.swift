@@ -531,6 +531,40 @@ func imapFlagChangeParsing() {
     #expect(result.flagChanges.count == 2)
 }
 
+@Test("IMAP selected state UID snapshot")
+func imapSelectedStateUidSnapshot() {
+    var state = ImapSelectedState(uidValidity: 7)
+    state.applyFetch(sequence: 2, uid: 200, modSeq: nil)
+    state.applyFetch(sequence: 1, uid: 100, modSeq: nil)
+    let snapshot = state.uidSetSnapshot(sortOrder: .ascending)
+    #expect(snapshot.description == "100,200")
+    var other = ImapSelectedState(uidValidity: 7)
+    other.applyFetch(sequence: 1, uid: 100, modSeq: nil)
+    #expect(state != other)
+}
+
+@Test("IMAP selected state reducer")
+func imapSelectedStateReducer() {
+    var state = ImapSelectedState(uidValidity: 7)
+    let lines = [
+        "* 2 EXISTS",
+        "* 1 FETCH (UID 100 MODSEQ (56) FLAGS (\\Seen))",
+        "* 2 FETCH (UID 200 MODSEQ (57) FLAGS (\\Seen))",
+        "* VANISHED 200",
+        "* 2 EXPUNGE"
+    ]
+    let messages = lines.map { ImapLiteralMessage(line: $0, response: ImapResponse.parse($0), literal: nil) }
+    let delta = ImapSelectedStateReducer.reduce(state: &state, messages: messages, validity: 7, mailbox: nil)
+    #expect(delta.idleEvents.count == 2)
+    #expect(delta.flagChanges.count == 2)
+    #expect(delta.qresyncEvents.count == 3)
+    #expect(state.messageCount == 1)
+    #expect(state.uidSet.count == 1)
+    #expect(delta.addedUids.count == 1)
+    #expect(delta.removedUids.isEmpty == true)
+    #expect(delta.addedUids.first?.id == 100)
+}
+
 @Test("IMAP mailbox UTF-7 decoding")
 func imapMailboxUtf7Decoding() {
     let encoded = "Archive &AOQ- Stuff"
@@ -1643,7 +1677,7 @@ func asyncImapSessionQresyncStoreMixedEvents() async throws {
     _ = try await selectTask.value
 
     let uidSet = UniqueIdSet([UniqueId(validity: 7, id: 100), UniqueId(validity: 7, id: 200)])
-    let storeTask = Task { try await session.uidStoreWithQresync(uidSet, data: "+FLAGS (\\Seen)") }
+    let storeTask = Task { try await session.uidStoreResult(uidSet, data: "+FLAGS (\\Seen)") }
     await transport.yieldIncoming(Array("* 2 EXISTS\r\n".utf8))
     await transport.yieldIncoming(Array("* 1 FETCH (UID 100 MODSEQ (56) FLAGS (\\Seen))\r\n".utf8))
     await transport.yieldIncoming(Array("* 2 FETCH (UID 200 MODSEQ (57) FLAGS (\\Seen))\r\n".utf8))
@@ -1876,7 +1910,7 @@ func syncImapSessionQresyncStoreMixedEvents() throws {
     _ = try session.select(mailbox: "INBOX")
 
     let uidSet = UniqueIdSet([UniqueId(validity: 7, id: 100), UniqueId(validity: 7, id: 200)])
-    let result = try session.uidStoreWithQresync(uidSet, data: "+FLAGS (\\Seen)")
+    let result = try session.uidStoreResult(uidSet, data: "+FLAGS (\\Seen)")
     #expect(result.flagChanges.count == 2)
     #expect(result.qresyncEvents.count == 3)
     #expect(session.selectedState.messageCount == 1)

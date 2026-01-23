@@ -276,6 +276,15 @@ public actor AsyncImapSession {
         return result.responses
     }
 
+    public func uidStoreResult(
+        _ set: UniqueIdSet,
+        data: String,
+        maxEmptyReads: Int = 10
+    ) async throws -> ImapStoreResult {
+        let result = try await uidStoreWithQresync(set, data: data, maxEmptyReads: maxEmptyReads)
+        return ImapStoreResult(fetchResult: result)
+    }
+
     public func uidStoreWithQresync(
         _ set: UniqueIdSet,
         data: String,
