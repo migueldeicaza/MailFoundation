@@ -13,6 +13,7 @@ public struct ImapSelectedState: Sendable, Equatable {
     public var lastExpungeSequence: Int?
     public var uidBySequence: [Int: UniqueId]
     public var sequenceByUid: [UniqueId: Int]
+    public var uidSet: UniqueIdSet
 
     public init(
         uidNext: UInt32? = nil,
@@ -22,7 +23,8 @@ public struct ImapSelectedState: Sendable, Equatable {
         recentCount: Int? = nil,
         lastExpungeSequence: Int? = nil,
         uidBySequence: [Int: UniqueId] = [:],
-        sequenceByUid: [UniqueId: Int] = [:]
+        sequenceByUid: [UniqueId: Int] = [:],
+        uidSet: UniqueIdSet? = nil
     ) {
         self.uidNext = uidNext
         self.uidValidity = uidValidity
@@ -32,6 +34,15 @@ public struct ImapSelectedState: Sendable, Equatable {
         self.lastExpungeSequence = lastExpungeSequence
         self.uidBySequence = uidBySequence
         self.sequenceByUid = sequenceByUid
+        if let uidSet {
+            self.uidSet = uidSet
+        } else {
+            var snapshot = UniqueIdSet(validity: uidValidity ?? 0, sortOrder: .ascending)
+            for uid in uidBySequence.values {
+                snapshot.add(uid)
+            }
+            self.uidSet = snapshot
+        }
     }
 
     public mutating func apply(response: ImapResponse) {
@@ -41,11 +52,7 @@ public struct ImapSelectedState: Sendable, Equatable {
             case .uidNext(let value):
                 uidNext = value
             case .uidValidity(let value):
-                if uidValidity != value {
-                    uidValidity = value
-                    uidBySequence.removeAll()
-                    sequenceByUid.removeAll()
-                }
+                applyUidValidity(value)
             case .highestModSeq(let value):
                 highestModSeq = max(highestModSeq ?? 0, value)
             }
@@ -55,11 +62,7 @@ public struct ImapSelectedState: Sendable, Equatable {
     public mutating func apply(status: ImapStatusResponse) {
         uidNext = extractUInt32(status.items, key: "UIDNEXT") ?? uidNext
         if let value = extractUInt32(status.items, key: "UIDVALIDITY") {
-            if uidValidity != value {
-                uidValidity = value
-                uidBySequence.removeAll()
-                sequenceByUid.removeAll()
-            }
+            applyUidValidity(value)
         }
         if let messages = extractInt(status.items, key: "MESSAGES") {
             messageCount = messages
@@ -75,11 +78,7 @@ public struct ImapSelectedState: Sendable, Equatable {
     public mutating func apply(listStatus: ImapListStatusResponse) {
         uidNext = extractUInt32(listStatus.statusItems, key: "UIDNEXT") ?? uidNext
         if let value = extractUInt32(listStatus.statusItems, key: "UIDVALIDITY") {
-            if uidValidity != value {
-                uidValidity = value
-                uidBySequence.removeAll()
-                sequenceByUid.removeAll()
-            }
+            applyUidValidity(value)
         }
         if let messages = extractInt(listStatus.statusItems, key: "MESSAGES") {
             messageCount = messages
@@ -128,6 +127,7 @@ public struct ImapSelectedState: Sendable, Equatable {
         let uniqueId = UniqueId(validity: validity, id: uid)
         uidBySequence[sequence] = uniqueId
         sequenceByUid[uniqueId] = sequence
+        uidSet.add(uniqueId)
     }
 
     private func extractUInt32(_ items: [String: Int], key: String) -> UInt32? {
@@ -147,8 +147,10 @@ public struct ImapSelectedState: Sendable, Equatable {
     private mutating func applyExpunge(sequence: Int) {
         guard !uidBySequence.isEmpty else { return }
         var nextBySequence: [Int: UniqueId] = [:]
+        var removedUid: UniqueId?
         for (key, value) in uidBySequence {
             if key == sequence {
+                removedUid = value
                 continue
             }
             let newKey = key > sequence ? key - 1 : key
@@ -160,5 +162,32 @@ public struct ImapSelectedState: Sendable, Equatable {
             nextByUid[uid] = sequence
         }
         sequenceByUid = nextByUid
+        if let removedUid {
+            _ = uidSet.remove(removedUid)
+        }
+    }
+
+    private mutating func applyUidValidity(_ value: UInt32) {
+        if uidValidity != value {
+            uidValidity = value
+            uidBySequence.removeAll()
+            sequenceByUid.removeAll()
+            uidSet = UniqueIdSet(validity: value, sortOrder: .ascending)
+        }
+    }
+}
+
+public extension ImapSelectedState {
+    static func == (lhs: ImapSelectedState, rhs: ImapSelectedState) -> Bool {
+        lhs.uidNext == rhs.uidNext &&
+            lhs.uidValidity == rhs.uidValidity &&
+            lhs.highestModSeq == rhs.highestModSeq &&
+            lhs.messageCount == rhs.messageCount &&
+            lhs.recentCount == rhs.recentCount &&
+            lhs.lastExpungeSequence == rhs.lastExpungeSequence &&
+            lhs.uidBySequence == rhs.uidBySequence &&
+            lhs.sequenceByUid == rhs.sequenceByUid &&
+            lhs.uidSet.validity == rhs.uidSet.validity &&
+            lhs.uidSet.description == rhs.uidSet.description
     }
 }

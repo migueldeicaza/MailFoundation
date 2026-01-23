@@ -510,6 +510,27 @@ func imapFetchBodyMapWithQresync() {
     #expect(result.qresyncEvents.count == 2)
 }
 
+@Test("IMAP flag change parsing")
+func imapFlagChangeParsing() {
+    let line1 = "* 2 FETCH (FLAGS (\\Seen \\Answered) UID 100 MODSEQ (57))"
+    let change1 = ImapFlagChange.parse(line1)
+    #expect(change1?.sequence == 2)
+    #expect(change1?.uid == 100)
+    #expect(change1?.modSeq == 57)
+    #expect(change1?.flags == ["\\Seen", "\\Answered"])
+
+    let line2 = "* 3 FETCH (FLAGS () UID 101 MODSEQ (58))"
+    let change2 = ImapFlagChange.parse(line2)
+    #expect(change2?.sequence == 3)
+    #expect(change2?.uid == 101)
+    #expect(change2?.modSeq == 58)
+    #expect(change2?.flags.isEmpty == true)
+
+    let responses = [line1, line2].compactMap(ImapFetchResponse.parse)
+    let result = ImapFetchResult(responses: responses, qresyncEvents: [])
+    #expect(result.flagChanges().count == 2)
+}
+
 @Test("IMAP mailbox UTF-7 decoding")
 func imapMailboxUtf7Decoding() {
     let encoded = "Archive &AOQ- Stuff"
@@ -1554,6 +1575,7 @@ func asyncImapSessionSelectedStateQresync() async throws {
     #expect(updated.highestModSeq == 57)
     #expect(updated.messageCount == 2)
     #expect(updated.lastExpungeSequence == 2)
+    #expect(updated.uidSet.count == 1)
 }
 
 @available(macOS 10.15, iOS 13.0, *)
@@ -1569,12 +1591,13 @@ func asyncImapSessionBodyFetchMapsQresync() async throws {
     let fetchTask = Task { try await session.fetchBodySectionsWithQresync("1", items: "BODY[]") }
     await transport.yieldIncoming(Array("* 1 FETCH (BODY[] {5}\r\n".utf8))
     await transport.yieldIncoming(Array("Hello".utf8))
+    await transport.yieldIncoming(Array("* 1 FETCH (UID 9 MODSEQ (6))\r\n".utf8))
     await transport.yieldIncoming(Array("* VANISHED 2\r\n".utf8))
     await transport.yieldIncoming(Array("A0001 OK FETCH\r\n".utf8))
     let result = try await fetchTask.value
     #expect(result.bodies.count == 1)
     #expect(result.bodies.first?.body() == Array("Hello".utf8))
-    #expect(result.qresyncEvents.count == 1)
+    #expect(result.qresyncEvents.count == 2)
 }
 
 @available(macOS 10.15, iOS 13.0, *)
@@ -1746,6 +1769,7 @@ func syncImapSessionSelectedStateQresync() throws {
     #expect(session.selectedState.highestModSeq == 57)
     #expect(session.selectedState.messageCount == 2)
     #expect(session.selectedState.lastExpungeSequence == 2)
+    #expect(session.selectedState.uidSet.count == 1)
 }
 
 @Test("Sync IMAP session BODY fetch maps with QRESYNC")
@@ -1754,6 +1778,7 @@ func syncImapSessionBodyFetchMapsQresync() throws {
         Array("* OK Ready\r\n".utf8),
         Array("* 1 FETCH (BODY[] {5}\r\n".utf8),
         Array("Hello".utf8),
+        Array("* 1 FETCH (UID 9 MODSEQ (6))\r\n".utf8),
         Array("* VANISHED 2\r\n".utf8),
         Array("A0001 OK FETCH\r\n".utf8)
     ])
@@ -1762,7 +1787,7 @@ func syncImapSessionBodyFetchMapsQresync() throws {
     let result = try session.fetchBodySectionsWithQresync("1", items: "BODY[]")
     #expect(result.bodies.count == 1)
     #expect(result.bodies.first?.body() == Array("Hello".utf8))
-    #expect(result.qresyncEvents.count == 1)
+    #expect(result.qresyncEvents.count == 2)
 }
 
 @Test("Sync IMAP UID fetch/store mapping updates")
@@ -1789,6 +1814,7 @@ func syncImapSessionUidFetchStoreMapping() throws {
     #expect(session.selectedState.uidBySequence[1]?.id == 100)
     #expect(session.selectedState.uidBySequence[2]?.id == 200)
     #expect(session.selectedState.messageCount == 2)
+    #expect(session.selectedState.uidSet.count == 2)
 
     let storeResult = try session.uidStoreWithQresync(uidSet, data: "+FLAGS (\\Seen)")
     #expect(storeResult.responses.count == 1)
@@ -1796,6 +1822,7 @@ func syncImapSessionUidFetchStoreMapping() throws {
     #expect(session.selectedState.uidBySequence[1]?.id == 200)
     let uid200 = UniqueId(validity: 7, id: 200)
     #expect(session.selectedState.sequenceByUid[uid200] == 1)
+    #expect(session.selectedState.uidSet.count == 1)
 }
 
 class TestTransport: Transport {
