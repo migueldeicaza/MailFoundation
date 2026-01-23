@@ -45,6 +45,35 @@ public actor AsyncSmtpSession {
         try await client.sendData(message)
     }
 
+    public func sendMail(from: String, to recipients: [String], data: [UInt8]) async throws -> SmtpResponse {
+        _ = try await client.send(.mailFrom(from))
+        guard let mailResponse = await client.waitForResponse() else {
+            throw SessionError.timeout
+        }
+        guard mailResponse.isSuccess else {
+            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+        }
+
+        for recipient in recipients {
+            _ = try await client.send(.rcptTo(recipient))
+            guard let rcptResponse = await client.waitForResponse() else {
+                throw SessionError.timeout
+            }
+            guard rcptResponse.isSuccess else {
+                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+            }
+        }
+
+        if let response = try await client.sendData(data) {
+            if response.isSuccess {
+                return response
+            }
+            throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        }
+
+        throw SessionError.timeout
+    }
+
     public func state() async -> AsyncSmtpClient.State {
         await client.state
     }

@@ -19,6 +19,7 @@ public final class SmtpClient {
 
     public private(set) var state: State = .disconnected
     public private(set) var capabilities: SmtpCapabilities?
+    public private(set) var lastWriteSucceeded: Bool = true
 
     public var protocolLogger: ProtocolLoggerType {
         didSet {
@@ -92,7 +93,8 @@ public final class SmtpClient {
     public func send(_ command: SmtpCommand) -> [UInt8] {
         let bytes = Array(command.serialized.utf8)
         protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
-        _ = transport?.write(bytes)
+        let written = transport?.write(bytes) ?? 0
+        lastWriteSucceeded = written == bytes.count
         return bytes
     }
 
@@ -135,7 +137,8 @@ public final class SmtpClient {
 
         let payload = SmtpDataWriter.prepare(message)
         protocolLogger.logClient(payload, offset: 0, count: payload.count)
-        _ = transport?.write(payload)
+        let written = transport?.write(payload) ?? 0
+        lastWriteSucceeded = written == payload.count
         return waitForResponse(maxReads: maxReads)
     }
 

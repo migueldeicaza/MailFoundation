@@ -13,6 +13,10 @@ public protocol Transport: AnyObject {
     func readAvailable(maxLength: Int) -> [UInt8]
 }
 
+public protocol StartTlsTransport: Transport {
+    func startTLS(validateCertificate: Bool)
+}
+
 public final class StreamTransport: Transport {
     private let input: InputStream
     private let output: OutputStream

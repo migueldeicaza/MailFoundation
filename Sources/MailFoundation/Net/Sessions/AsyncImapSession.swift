@@ -52,6 +52,95 @@ public actor AsyncImapSession {
         await client.capabilities
     }
 
+    public func search(_ criteria: String, maxEmptyReads: Int = 10) async throws -> ImapSearchResponse {
+        let command = try await client.send(.search(criteria))
+        var ids: [UInt32] = []
+        var emptyReads = 0
+
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let search = ImapSearchResponse.parse(message.line) {
+                    ids = search.ids
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    if response.isOk {
+                        return ImapSearchResponse(ids: ids)
+                    }
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func status(mailbox: String, items: [String], maxEmptyReads: Int = 10) async throws -> ImapStatusResponse {
+        let command = try await client.send(.status(mailbox, items: items))
+        var result: ImapStatusResponse?
+        var emptyReads = 0
+
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let status = ImapStatusResponse.parse(message.line) {
+                    result = status
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    if response.isOk, let result {
+                        return result
+                    }
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func fetch(_ set: String, items: String, maxEmptyReads: Int = 10) async throws -> [ImapFetchResponse] {
+        let command = try await client.send(.fetch(set, items))
+        var results: [ImapFetchResponse] = []
+        var emptyReads = 0
+
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let fetch = ImapFetchResponse.parse(message.line) {
+                    results.append(fetch)
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    if response.isOk {
+                        return results
+                    }
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func fetchAttributes(_ set: String, items: String, maxEmptyReads: Int = 10) async throws -> [ImapFetchAttributes] {
+        let responses = try await fetch(set, items: items, maxEmptyReads: maxEmptyReads)
+        return responses.compactMap(ImapFetchAttributes.parse)
+    }
+
     private func waitForGreeting() async -> ImapResponse? {
         while true {
             let messages = await client.nextMessages()

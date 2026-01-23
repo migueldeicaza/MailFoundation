@@ -28,6 +28,7 @@ public final class Pop3Client {
 
     public private(set) var state: State = .disconnected
     public private(set) var capabilities: Pop3Capabilities?
+    public private(set) var lastWriteSucceeded: Bool = true
 
     public var protocolLogger: ProtocolLoggerType {
         didSet {
@@ -122,7 +123,8 @@ public final class Pop3Client {
     public func send(_ command: Pop3Command) -> [UInt8] {
         let bytes = Array(command.serialized.utf8)
         protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
-        _ = transport?.write(bytes)
+        let written = transport?.write(bytes) ?? 0
+        lastWriteSucceeded = written == bytes.count
         return bytes
     }
 

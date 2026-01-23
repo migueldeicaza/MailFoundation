@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import MailFoundation
+import SwiftMimeKit
 
 @Test("UniqueId basics")
 func uniqueIdBasics() {
@@ -131,6 +132,46 @@ func envelopeLiteralParsing() throws {
     #expect(envelope.subject == "Hello")
 }
 
+@Test("Envelope apply headers")
+func envelopeApplyHeaders() {
+    let envelope = Envelope()
+    envelope.apply(headers: [
+        "Subject": "=?UTF-8?B?SGVsbG8=?=",
+        "From": "Alice <alice@example.com>",
+        "Message-Id": "<msgid@example.com>",
+        "In-Reply-To": "<reply@example.com>"
+    ])
+    #expect(envelope.subject == "Hello")
+    let from = envelope.from[envelope.from.startIndex] as? MailboxAddress
+    #expect(from?.address == "alice@example.com")
+    #expect(envelope.messageId == "<msgid@example.com>")
+    #expect(envelope.inReplyTo == "<reply@example.com>")
+}
+
+@Test("Envelope apply SwiftMimeKit headers")
+func envelopeApplySwiftMimeKitHeaders() {
+    let headers = [
+        Header(field: "Subject", value: "=?UTF-8?B?SGVsbG8=?="),
+        Header(field: "From", value: "Alice <alice@example.com>")
+    ]
+    let envelope = Envelope()
+    envelope.apply(headers: headers)
+    #expect(envelope.subject == "Hello")
+    let from = envelope.from[envelope.from.startIndex] as? MailboxAddress
+    #expect(from?.address == "alice@example.com")
+}
+
+@Test("Envelope init from HeaderList")
+func envelopeInitFromHeaderList() {
+    let list = HeaderList()
+    list.add(Header(field: "Subject", value: "=?UTF-8?B?SGVsbG8=?="))
+    list.add(Header(field: "From", value: "Alice <alice@example.com>"))
+    let envelope = Envelope(headers: list)
+    #expect(envelope.subject == "Hello")
+    let from = envelope.from[envelope.from.startIndex] as? MailboxAddress
+    #expect(from?.address == "alice@example.com")
+}
+
 @Test("MessageIdList parsing")
 func messageIdListParsing() {
     let value = "<id1@example.com> <id2@example.com>"
@@ -153,6 +194,27 @@ func referencesHeaderParsing() {
 func inReplyToHeaderParsing() {
     let header = InReplyToHeader.parse("<id3@example.com>")
     #expect(header?.ids == ["<id3@example.com>"])
+}
+
+@Test("Address parser helpers")
+func addressParserHelpers() throws {
+    let list = try AddressParser.parseList("Alice <alice@example.com>, Bob <bob@example.com>")
+    #expect(list.count == 2)
+
+    let mailbox = try AddressParser.parseMailbox("Alice <alice@example.com>")
+    #expect(mailbox.address == "alice@example.com")
+}
+
+@Test("Subject decoder")
+func subjectDecoder() {
+    let decoded = SubjectDecoder.decode("=?UTF-8?B?SGVsbG8=?=")
+    #expect(decoded == "Hello")
+}
+
+@Test("Threading references merge")
+func threadingReferencesMerge() {
+    let threading = ThreadingReferences.merge(inReplyTo: "<id3@example.com>", references: "<id1@example.com> <id2@example.com>")
+    #expect(threading?.ids == ["<id1@example.com>", "<id2@example.com>", "<id3@example.com>"])
 }
 
 @Test("ProtocolLogger prefixes and redacts")
@@ -294,6 +356,21 @@ func pop3CapabilitiesParsing() {
     #expect(capabilities?.value(for: "SASL") == "PLAIN LOGIN")
 }
 
+@Test("POP3 listing parsers")
+func pop3ListingParsers() {
+    let listItems = Pop3ListParser.parse(["1 10", "2 20"])
+    #expect(listItems.count == 2)
+    #expect(listItems.first?.size == 10)
+
+    let uidlItems = Pop3UidlParser.parse(["1 uid1", "2 uid2"])
+    #expect(uidlItems.count == 2)
+    #expect(uidlItems.last?.uid == "uid2")
+
+    let stat = Pop3StatResponse.parse(Pop3Response(status: .ok, message: "2 320"))
+    #expect(stat?.count == 2)
+    #expect(stat?.size == 320)
+}
+
 @Test("IMAP response parser")
 func imapResponseParser() {
     let greeting = ImapResponse.parse("* OK IMAP4rev1 Service Ready")
@@ -333,6 +410,31 @@ func imapCapabilitiesParsing() {
     let bracketed = "* OK [CAPABILITY IMAP4rev1 STARTTLS] Ready"
     let bracketedCaps = ImapCapabilities.parse(from: bracketed)
     #expect(bracketedCaps?.supports("STARTTLS") == true)
+}
+
+@Test("IMAP response parsers")
+func imapResponseParsers() {
+    let search = ImapSearchResponse.parse("* SEARCH 1 2 3")
+    #expect(search?.ids == [1, 2, 3])
+
+    let status = ImapStatusResponse.parse("* STATUS INBOX (MESSAGES 2 UIDNEXT 5)")
+    #expect(status?.mailbox == "INBOX")
+    #expect(status?.items["UIDNEXT"] == 5)
+
+    let fetch = ImapFetchResponse.parse("* 1 FETCH (FLAGS (\\Seen))")
+    #expect(fetch?.sequence == 1)
+    #expect(fetch?.payload.contains("FLAGS") == true)
+
+    let attributes = ImapFetchAttributes.parsePayload("(FLAGS (\\Seen \\Answered) UID 12 RFC822.SIZE 123 INTERNALDATE \"01-Jan-2020 00:00:00 +0000\")")
+    #expect(attributes?.flags.contains("\\Seen") == true)
+    #expect(attributes?.uid == 12)
+    #expect(attributes?.size == 123)
+
+    let full = ImapFetchAttributes.parsePayload("(FLAGS (\\Seen) UID 4 MODSEQ (123) ENVELOPE (NIL NIL NIL NIL NIL NIL NIL NIL NIL NIL) BODYSTRUCTURE (\"TEXT\" \"PLAIN\" NIL NIL NIL \"7BIT\" 1 1))")
+    #expect(full?.modSeq == 123)
+    #expect(full?.envelopeRaw?.hasPrefix("(") == true)
+    #expect(full?.parsedEnvelope() != nil)
+    #expect(full?.bodyStructure?.contains("TEXT") == true)
 }
 
 @Test("LineBuffer incremental")
@@ -653,6 +755,27 @@ func asyncSmtpSessionFlow() async throws {
 }
 
 @available(macOS 10.15, iOS 13.0, *)
+@Test("Async SMTP session send mail")
+func asyncSmtpSessionSendMail() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncSmtpSession(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("220 Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let sendTask = Task {
+        try await session.sendMail(from: "alice@example.com", to: ["bob@example.com"], data: Array("Hello\r\n".utf8))
+    }
+    await transport.yieldIncoming(Array("250 OK\r\n".utf8))
+    await transport.yieldIncoming(Array("250 OK\r\n".utf8))
+    await transport.yieldIncoming(Array("354 End data\r\n".utf8))
+    await transport.yieldIncoming(Array("250 OK\r\n".utf8))
+    let response = try await sendTask.value
+    #expect(response.code == 250)
+}
+
+@available(macOS 10.15, iOS 13.0, *)
 @Test("Async SMTP capabilities")
 func asyncSmtpCapabilities() async throws {
     let transport = AsyncStreamTransport()
@@ -732,6 +855,32 @@ func asyncPop3SessionFlow() async throws {
     await transport.yieldIncoming(Array("+OK\r\n".utf8))
     let result = try await authTask.value
     #expect(result.pass?.isSuccess == true)
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async POP3 session listings")
+func asyncPop3SessionListings() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncPop3Session(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("+OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let statTask = Task { try await session.stat() }
+    await transport.yieldIncoming(Array("+OK 2 320\r\n".utf8))
+    let stat = try await statTask.value
+    #expect(stat.count == 2)
+
+    let listTask = Task { try await session.list() }
+    await transport.yieldIncoming(Array("+OK\r\n1 10\r\n.\r\n".utf8))
+    let list = try await listTask.value
+    #expect(list.count == 1)
+
+    let uidlTask = Task { try await session.uidl() }
+    await transport.yieldIncoming(Array("+OK\r\n1 uid1\r\n.\r\n".utf8))
+    let uidl = try await uidlTask.value
+    #expect(uidl.first?.uid == "uid1")
 }
 
 @available(macOS 10.15, iOS 13.0, *)
@@ -822,10 +971,171 @@ func asyncImapSessionFlow() async throws {
 }
 
 @available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP session queries")
+func asyncImapSessionQueries() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncImapSession(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let searchTask = Task { try await session.search("ALL") }
+    await transport.yieldIncoming(Array("* SEARCH 1 2 3\r\n".utf8))
+    await transport.yieldIncoming(Array("A0001 OK SEARCH\r\n".utf8))
+    let search = try await searchTask.value
+    #expect(search.ids == [1, 2, 3])
+
+    let statusTask = Task { try await session.status(mailbox: "INBOX", items: ["MESSAGES", "UIDNEXT"]) }
+    await transport.yieldIncoming(Array("* STATUS INBOX (MESSAGES 2 UIDNEXT 5)\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK STATUS\r\n".utf8))
+    let status = try await statusTask.value
+    #expect(status.items["UIDNEXT"] == 5)
+
+    let fetchTask = Task { try await session.fetch("1", items: "FLAGS") }
+    await transport.yieldIncoming(Array("* 1 FETCH (FLAGS (\\Seen))\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK FETCH\r\n".utf8))
+    let fetch = try await fetchTask.value
+    #expect(fetch.count == 1)
+}
+
+@available(macOS 10.15, iOS 13.0, *)
 @Test("Async transport factory async-stream backend")
 func asyncTransportFactoryAsyncStream() throws {
     let transport = try AsyncTransportFactory.make(host: "localhost", port: 1, backend: .asyncStream)
     #expect(transport is AsyncStreamTransport)
+}
+
+@Test("Sync transport factory TCP backend")
+func transportFactoryTcp() throws {
+    let transport = try TransportFactory.make(host: "localhost", port: 1, backend: .tcp)
+    #expect(transport is TcpTransport)
+}
+
+#if !os(iOS)
+@Test("Sync transport factory socket backend")
+func transportFactorySocket() throws {
+    let transport = try TransportFactory.make(host: "localhost", port: 1, backend: .socket)
+    #expect(transport is PosixSocketTransport)
+}
+#endif
+
+@Test("Sync SMTP session flow")
+func syncSmtpSessionFlow() throws {
+    let transport = TestTransport(incoming: [
+        Array("220 Ready\r\n".utf8),
+        Array("250-smtp.example.com\r\n250 SIZE 12\r\n".utf8),
+        Array("250 OK\r\n".utf8),
+        Array("250 OK\r\n".utf8),
+        Array("354 End data\r\n".utf8),
+        Array("250 OK\r\n".utf8)
+    ])
+    let session = SmtpSession(transport: transport, maxReads: 3)
+    _ = try session.connect()
+    _ = try session.ehlo(domain: "localhost")
+    _ = try session.sendMail(from: "alice@example.com", to: ["bob@example.com"], data: Array("Hello\r\n".utf8))
+    let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent.contains("EHLO localhost\r\n"))
+    #expect(sent.contains("MAIL FROM:<alice@example.com>\r\n"))
+}
+
+@Test("Sync SMTP session write failure")
+func syncSmtpSessionWriteFailure() throws {
+    let transport = FailingTransport(incoming: [Array("220 Ready\r\n".utf8)])
+    let session = SmtpSession(transport: transport, maxReads: 1)
+    _ = try session.connect()
+    #expect(throws: SessionError.transportWriteFailed) {
+        _ = try session.helo(domain: "localhost")
+    }
+}
+
+@Test("StartTLS unsupported")
+func startTlsUnsupported() throws {
+    let transport = TestTransport(incoming: [Array("220 Ready\r\n".utf8), Array("220 Go ahead\r\n".utf8)])
+    let session = SmtpSession(transport: transport, maxReads: 1)
+    _ = try session.connect()
+    #expect(throws: SessionError.startTlsNotSupported) {
+        _ = try session.startTls()
+    }
+}
+
+@Test("StartTLS supported")
+func startTlsSupported() throws {
+    let transport = StartTlsTestTransport(incoming: [Array("220 Ready\r\n".utf8), Array("220 Go ahead\r\n".utf8)])
+    let session = SmtpSession(transport: transport, maxReads: 2)
+    _ = try session.connect()
+    let response = try session.startTls()
+    #expect(response.code == 220)
+    #expect(transport.didStartTls == true)
+}
+
+@Test("Sync POP3 session flow")
+func syncPop3SessionFlow() throws {
+    let transport = TestTransport(incoming: [
+        Array("+OK Ready\r\n".utf8),
+        Array("+OK\r\nUSER\r\n.\r\n".utf8),
+        Array("+OK 2 320\r\n".utf8)
+    ])
+    let session = Pop3Session(transport: transport, maxReads: 3)
+    _ = try session.connect()
+    let caps = try session.capability()
+    #expect(caps.supports("USER") == true)
+    let stat = try session.stat()
+    #expect(stat.count == 2)
+}
+
+@Test("Sync IMAP session flow")
+func syncImapSessionFlow() throws {
+    let transport = TestTransport(incoming: [
+        Array("* OK Ready\r\n".utf8),
+        Array("* SEARCH 1 2 3\r\n".utf8),
+        Array("A0001 OK SEARCH\r\n".utf8),
+        Array("* STATUS INBOX (MESSAGES 2 UIDNEXT 5)\r\n".utf8),
+        Array("A0002 OK STATUS\r\n".utf8)
+    ])
+    let session = ImapSession(transport: transport, maxReads: 3)
+    _ = try session.connect()
+    let search = try session.search("ALL")
+    #expect(search.ids == [1, 2, 3])
+    let status = try session.status(mailbox: "INBOX", items: ["MESSAGES", "UIDNEXT"])
+    #expect(status.items["MESSAGES"] == 2)
+}
+
+class TestTransport: Transport {
+    var incoming: [[UInt8]]
+    var written: [[UInt8]] = []
+
+    init(incoming: [[UInt8]] = []) {
+        self.incoming = incoming
+    }
+
+    func open() {}
+    func close() {}
+
+    func write(_ bytes: [UInt8]) -> Int {
+        written.append(bytes)
+        return bytes.count
+    }
+
+    func readAvailable(maxLength: Int) -> [UInt8] {
+        guard !incoming.isEmpty else { return [] }
+        return incoming.removeFirst()
+    }
+}
+
+final class FailingTransport: TestTransport {
+    override func write(_ bytes: [UInt8]) -> Int {
+        written.append(bytes)
+        return 0
+    }
+}
+
+final class StartTlsTestTransport: TestTransport, StartTlsTransport {
+    private(set) var didStartTls = false
+
+    func startTLS(validateCertificate: Bool) {
+        didStartTls = true
+    }
 }
 
 @available(macOS 10.15, iOS 13.0, *)

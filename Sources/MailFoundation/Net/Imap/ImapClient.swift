@@ -33,6 +33,7 @@ public final class ImapClient {
 
     public private(set) var state: State = .disconnected
     public private(set) var capabilities: ImapCapabilities?
+    public private(set) var lastWriteSucceeded: Bool = true
 
     public var protocolLogger: ProtocolLoggerType {
         didSet {
@@ -112,7 +113,8 @@ public final class ImapClient {
     public func send(_ command: ImapCommand) -> [UInt8] {
         let bytes = Array(command.serialized.utf8)
         protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
-        _ = transport?.write(bytes)
+        let written = transport?.write(bytes) ?? 0
+        lastWriteSucceeded = written == bytes.count
         return bytes
     }
 
