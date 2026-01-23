@@ -510,6 +510,12 @@ func imapFetchBodyMapWithQresync() {
     #expect(result.qresyncEvents.count == 2)
 }
 
+@Test("IMAP ENABLED parsing")
+func imapEnabledParsing() {
+    let response = ImapEnabledResponse.parse("* ENABLED IMAP4rev1 CONDSTORE QRESYNC")
+    #expect(response?.capabilities == ["IMAP4rev1", "CONDSTORE", "QRESYNC"])
+}
+
 @Test("IMAP flag change parsing")
 func imapFlagChangeParsing() {
     let line1 = "* 2 FETCH (FLAGS (\\Seen \\Answered) UID 100 MODSEQ (57))"
@@ -1571,6 +1577,78 @@ func asyncImapSessionQueries() async throws {
 }
 
 @available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP session list/lsub/enable")
+func asyncImapSessionListLsubEnable() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncImapSession(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let listTask = Task { try await session.list(reference: "\"\"", mailbox: "*") }
+    await transport.yieldIncoming(Array("* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n".utf8))
+    await transport.yieldIncoming(Array("A0001 OK LIST\r\n".utf8))
+    let list = try await listTask.value
+    #expect(list.first?.name == "INBOX")
+
+    let lsubTask = Task { try await session.lsub(reference: "\"\"", mailbox: "*") }
+    await transport.yieldIncoming(Array("* LSUB (\\HasNoChildren) \"/\" \"INBOX\"\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK LSUB\r\n".utf8))
+    let lsub = try await lsubTask.value
+    #expect(lsub.first?.name == "INBOX")
+
+    let enableTask = Task { try await session.enable(["CONDSTORE", "QRESYNC"]) }
+    await transport.yieldIncoming(Array("* ENABLED CONDSTORE QRESYNC\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK ENABLE\r\n".utf8))
+    let enabled = try await enableTask.value
+    #expect(enabled.contains("QRESYNC") == true)
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP session uid search")
+func asyncImapSessionUidSearch() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncImapSession(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let searchTask = Task { try await session.uidSearch("ALL") }
+    await transport.yieldIncoming(Array("* SEARCH 10 11\r\n".utf8))
+    await transport.yieldIncoming(Array("A0001 OK UID SEARCH\r\n".utf8))
+    let result = try await searchTask.value
+    #expect(result.ids == [10, 11])
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP session examine/close/expunge")
+func asyncImapSessionExamineCloseExpunge() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncImapSession(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let examineTask = Task { try await session.examine(mailbox: "INBOX") }
+    await transport.yieldIncoming(Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8))
+    await transport.yieldIncoming(Array("A0001 OK EXAMINE\r\n".utf8))
+    _ = try await examineTask.value
+    #expect(await session.selectedMailbox == "INBOX")
+
+    let expungeTask = Task { try await session.expunge() }
+    await transport.yieldIncoming(Array("* 1 EXPUNGE\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK EXPUNGE\r\n".utf8))
+    _ = try await expungeTask.value
+
+    let closeTask = Task { try await session.close() }
+    await transport.yieldIncoming(Array("A0003 OK CLOSE\r\n".utf8))
+    _ = try await closeTask.value
+    #expect(await session.selectedMailbox == nil)
+}
+@available(macOS 10.15, iOS 13.0, *)
 @Test("Async IMAP session selected state and QRESYNC fetch")
 func asyncImapSessionSelectedStateQresync() async throws {
     let transport = AsyncStreamTransport()
@@ -1805,6 +1883,58 @@ func syncImapSessionFlow() throws {
     #expect(status.items["MESSAGES"] == 2)
 }
 
+@Test("Sync IMAP session uid search")
+func syncImapSessionUidSearch() throws {
+    let transport = TestTransport(incoming: [
+        Array("* OK Ready\r\n".utf8),
+        Array("* SEARCH 10 11\r\n".utf8),
+        Array("A0001 OK UID SEARCH\r\n".utf8)
+    ])
+    let session = ImapSession(transport: transport, maxReads: 3)
+    _ = try session.connect()
+    let result = try session.uidSearch("ALL")
+    #expect(result.ids == [10, 11])
+}
+
+@Test("Sync IMAP session list/lsub/enable")
+func syncImapSessionListLsubEnable() throws {
+    let transport = TestTransport(incoming: [
+        Array("* OK Ready\r\n".utf8),
+        Array("* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n".utf8),
+        Array("A0001 OK LIST\r\n".utf8),
+        Array("* LSUB (\\HasNoChildren) \"/\" \"INBOX\"\r\n".utf8),
+        Array("A0002 OK LSUB\r\n".utf8),
+        Array("* ENABLED CONDSTORE QRESYNC\r\n".utf8),
+        Array("A0003 OK ENABLE\r\n".utf8)
+    ])
+    let session = ImapSession(transport: transport, maxReads: 6)
+    _ = try session.connect()
+    let list = try session.list(reference: "\"\"", mailbox: "*")
+    #expect(list.first?.name == "INBOX")
+    let lsub = try session.lsub(reference: "\"\"", mailbox: "*")
+    #expect(lsub.first?.name == "INBOX")
+    let enabled = try session.enable(["CONDSTORE", "QRESYNC"])
+    #expect(enabled.contains("CONDSTORE") == true)
+}
+
+@Test("Sync IMAP session examine/close/expunge")
+func syncImapSessionExamineCloseExpunge() throws {
+    let transport = TestTransport(incoming: [
+        Array("* OK Ready\r\n".utf8),
+        Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8),
+        Array("A0001 OK EXAMINE\r\n".utf8),
+        Array("* 1 EXPUNGE\r\n".utf8),
+        Array("A0002 OK EXPUNGE\r\n".utf8),
+        Array("A0003 OK CLOSE\r\n".utf8)
+    ])
+    let session = ImapSession(transport: transport, maxReads: 6)
+    _ = try session.connect()
+    _ = try session.examine(mailbox: "INBOX")
+    #expect(session.selectedMailbox == "INBOX")
+    _ = try session.expunge()
+    _ = try session.close()
+    #expect(session.selectedMailbox == nil)
+}
 @Test("Sync IMAP session selected state and QRESYNC fetch")
 func syncImapSessionSelectedStateQresync() throws {
     let transport = TestTransport(incoming: [

@@ -42,6 +42,54 @@ public actor AsyncImapSession {
         try await client.login(user: user, password: password)
     }
 
+    public func noop() async throws -> ImapResponse? {
+        let command = try await client.send(.noop)
+        var emptyReads = 0
+        while emptyReads < 10 {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return response
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
+    public func enable(_ capabilities: [String], maxEmptyReads: Int = 10) async throws -> [String] {
+        let command = try await client.send(.enable(capabilities))
+        var enabled: [String] = []
+        var emptyReads = 0
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let response = ImapEnabledResponse.parse(message.line) {
+                    enabled.append(contentsOf: response.capabilities)
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return enabled
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
     public func select(mailbox: String) async throws -> ImapResponse? {
         let command = try await client.send(.select(mailbox))
         var emptyReads = 0
@@ -71,6 +119,33 @@ public actor AsyncImapSession {
         }
     }
 
+    public func examine(mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapResponse? {
+        let command = try await client.send(.examine(mailbox))
+        var emptyReads = 0
+        var nextState = ImapSelectedState()
+
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                applySelectedState(&nextState, mailbox: mailbox, from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    selectedMailbox = mailbox
+                    selectedState = nextState
+                    return response
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
     public func close() async throws -> ImapResponse? {
         let response = try await client.close()
         if response?.isOk == true {
@@ -78,6 +153,264 @@ public actor AsyncImapSession {
             selectedState = ImapSelectedState()
         }
         return response
+    }
+
+    public func check(maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        let command = try await client.send(.check)
+        var emptyReads = 0
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return response
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
+    public func expunge(maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        let command = try await client.send(.expunge)
+        var emptyReads = 0
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return response
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
+    public func create(mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        let command = try await client.send(.create(mailbox))
+        var emptyReads = 0
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return response
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
+    public func delete(mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        let command = try await client.send(.delete(mailbox))
+        var emptyReads = 0
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return response
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
+    public func rename(mailbox: String, newName: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        let command = try await client.send(.rename(mailbox, newName))
+        var emptyReads = 0
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return response
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
+    public func subscribe(mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        let command = try await client.send(.subscribe(mailbox))
+        var emptyReads = 0
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return response
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
+    public func unsubscribe(mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        let command = try await client.send(.unsubscribe(mailbox))
+        var emptyReads = 0
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return response
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
+    public func list(reference: String, mailbox: String, maxEmptyReads: Int = 10) async throws -> [ImapMailbox] {
+        let responses = try await listResponses(reference: reference, mailbox: mailbox, maxEmptyReads: maxEmptyReads)
+        return responses.map { ImapMailbox(kind: $0.kind, name: $0.name, delimiter: $0.delimiter, attributes: $0.attributes) }
+    }
+
+    public func listResponses(
+        reference: String,
+        mailbox: String,
+        maxEmptyReads: Int = 10
+    ) async throws -> [ImapMailboxListResponse] {
+        let command = try await client.send(.list(reference, mailbox))
+        var responses: [ImapMailboxListResponse] = []
+        var emptyReads = 0
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let list = ImapMailboxListResponse.parse(message.line) {
+                    responses.append(list)
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return responses
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
+    public func lsub(reference: String, mailbox: String, maxEmptyReads: Int = 10) async throws -> [ImapMailbox] {
+        let responses = try await lsubResponses(reference: reference, mailbox: mailbox, maxEmptyReads: maxEmptyReads)
+        return responses.map { ImapMailbox(kind: $0.kind, name: $0.name, delimiter: $0.delimiter, attributes: $0.attributes) }
+    }
+
+    public func lsubResponses(
+        reference: String,
+        mailbox: String,
+        maxEmptyReads: Int = 10
+    ) async throws -> [ImapMailboxListResponse] {
+        let command = try await client.send(.lsub(reference, mailbox))
+        var responses: [ImapMailboxListResponse] = []
+        var emptyReads = 0
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let list = ImapMailboxListResponse.parse(message.line) {
+                    responses.append(list)
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return responses
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
+    public func listStatus(
+        reference: String,
+        mailbox: String,
+        maxEmptyReads: Int = 10
+    ) async throws -> [ImapListStatusResponse] {
+        let command = try await client.send(.list(reference, mailbox))
+        var responses: [ImapListStatusResponse] = []
+        var emptyReads = 0
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let listStatus = ImapListStatusResponse.parse(message.line) {
+                    responses.append(listStatus)
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return responses
+                }
+            }
+        }
+        throw SessionError.timeout
     }
 
     public func state() async -> AsyncImapClient.State {
@@ -114,6 +447,42 @@ public actor AsyncImapSession {
         }
 
         throw SessionError.timeout
+    }
+
+    public func search(_ query: SearchQuery, maxEmptyReads: Int = 10) async throws -> ImapSearchResponse {
+        try await search(query.serialize(), maxEmptyReads: maxEmptyReads)
+    }
+
+    public func uidSearch(_ criteria: String, maxEmptyReads: Int = 10) async throws -> ImapSearchResponse {
+        let command = try await client.send(.uidSearch(criteria))
+        var ids: [UInt32] = []
+        var emptyReads = 0
+
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let search = ImapSearchResponse.parse(message.line) {
+                    ids = search.ids
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    if response.isOk {
+                        return ImapSearchResponse(ids: ids)
+                    }
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func uidSearch(_ query: SearchQuery, maxEmptyReads: Int = 10) async throws -> ImapSearchResponse {
+        try await uidSearch(query.serialize(), maxEmptyReads: maxEmptyReads)
     }
 
     public func status(mailbox: String, items: [String], maxEmptyReads: Int = 10) async throws -> ImapStatusResponse {
