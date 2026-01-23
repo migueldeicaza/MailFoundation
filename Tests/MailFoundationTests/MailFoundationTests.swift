@@ -1038,6 +1038,31 @@ func fetchRequestSerialization() {
 
     let headerRequest = FetchRequest(items: [.headers, .references], headers: ["Subject"])
     #expect(headerRequest.imapItemList == "BODY.PEEK[HEADER.FIELDS (Subject REFERENCES)]")
+
+    let previewRequest = FetchRequest(items: [.previewText])
+    #expect(previewRequest.imapItemList(previewFallback: ImapFetchPartial(start: 0, length: 64)) == "BODY.PEEK[TEXT]<0.64>")
+}
+
+@Test("Message summary header/references/preview parsing")
+func messageSummaryHeaderAndPreviewParsing() {
+    let line = "* 1 FETCH (UID 10 FLAGS (\\Seen))"
+    let fetch = ImapFetchResponse.parse(line)
+    let headerBytes = Array("References: <one@id> <two@id>\r\nSubject: Test\r\n\r\n".utf8)
+    let textBytes = Array("Hello preview body".utf8)
+
+    let headerSection = ImapFetchBodySection.header
+    let textSection = ImapFetchBodySection.text
+    let headerPayload = ImapFetchBodySectionPayload(section: headerSection, peek: true, partial: nil, data: headerBytes)
+    let textPayload = ImapFetchBodySectionPayload(section: textSection, peek: true, partial: nil, data: textBytes)
+
+    let headerKey = ImapFetchBodyKey(section: headerSection.serialize(), peek: true, partial: nil)
+    let textKey = ImapFetchBodyKey(section: textSection.serialize(), peek: true, partial: nil)
+    let bodyMap = ImapFetchBodyMap(sequence: 1, payloads: [headerPayload, textPayload], bodies: [headerKey: headerBytes, textKey: textBytes])
+
+    let summary = fetch.flatMap { MessageSummary.build(fetch: $0, bodyMap: bodyMap) }
+    #expect(summary?.references?.ids == ["<one@id>", "<two@id>"])
+    #expect(summary?.headers["SUBJECT"] == "Test")
+    #expect(summary?.previewText == "Hello preview body")
 }
 
 @Test("LineBuffer incremental")

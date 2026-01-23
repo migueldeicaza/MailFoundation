@@ -433,6 +433,15 @@ public final class ImapSession {
         try fetch(set, items: request.imapItemList)
     }
 
+    public func fetchSummaries(_ set: String, request: FetchRequest, previewLength: Int = 512) throws -> [MessageSummary] {
+        let needsBodies = request.items.contains(.headers) || request.items.contains(.references) || request.items.contains(.previewText)
+        let itemList = request.items.contains(.previewText)
+            ? request.imapItemList(previewFallback: ImapFetchPartial(start: 0, length: previewLength))
+            : request.imapItemList
+        let result = try fetchSummariesWithQresync(set, items: itemList, parseBodies: needsBodies)
+        return result
+    }
+
     public func fetchWithQresync(_ set: String, items: String) throws -> ImapFetchResult {
         let command = client.send(.fetch(set, items))
         try ensureWrite()
@@ -459,6 +468,38 @@ public final class ImapSession {
                         throw SessionError.imapError(status: response.status, text: response.text)
                     }
                     return ImapFetchResult(responses: results, qresyncEvents: events)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func fetchSummariesWithQresync(_ set: String, items: String, parseBodies: Bool) throws -> [MessageSummary] {
+        let command = client.send(.fetch(set, items))
+        try ensureWrite()
+        var messages: [ImapLiteralMessage] = []
+        var reads = 0
+
+        while reads < maxReads {
+            let batch = client.receiveWithLiterals()
+            if batch.isEmpty {
+                reads += 1
+                continue
+            }
+            messages.append(contentsOf: batch)
+            for message in batch {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    let fetches = messages.compactMap { ImapFetchResponse.parse($0.line) }
+                    let maps = parseBodies ? ImapFetchBodyParser.parseMaps(messages) : []
+                    let mapBySequence = Dictionary(uniqueKeysWithValues: maps.map { ($0.sequence, $0) })
+                    return fetches.compactMap { fetch in
+                        MessageSummary.build(fetch: fetch, bodyMap: mapBySequence[fetch.sequence])
+                    }
                 }
             }
         }
@@ -516,6 +557,15 @@ public final class ImapSession {
         try uidFetch(set, items: request.imapItemList)
     }
 
+    public func uidFetchSummaries(_ set: UniqueIdSet, request: FetchRequest, previewLength: Int = 512) throws -> [MessageSummary] {
+        let needsBodies = request.items.contains(.headers) || request.items.contains(.references) || request.items.contains(.previewText)
+        let itemList = request.items.contains(.previewText)
+            ? request.imapItemList(previewFallback: ImapFetchPartial(start: 0, length: previewLength))
+            : request.imapItemList
+        let result = try uidFetchSummariesWithQresync(set, items: itemList, parseBodies: needsBodies)
+        return result
+    }
+
     public func uidFetchWithQresync(_ set: UniqueIdSet, items: String) throws -> ImapFetchResult {
         let command = client.send(.uidFetch(set.description, items))
         try ensureWrite()
@@ -542,6 +592,38 @@ public final class ImapSession {
                         throw SessionError.imapError(status: response.status, text: response.text)
                     }
                     return ImapFetchResult(responses: results, qresyncEvents: events)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func uidFetchSummariesWithQresync(_ set: UniqueIdSet, items: String, parseBodies: Bool) throws -> [MessageSummary] {
+        let command = client.send(.uidFetch(set.description, items))
+        try ensureWrite()
+        var messages: [ImapLiteralMessage] = []
+        var reads = 0
+
+        while reads < maxReads {
+            let batch = client.receiveWithLiterals()
+            if batch.isEmpty {
+                reads += 1
+                continue
+            }
+            messages.append(contentsOf: batch)
+            for message in batch {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    let fetches = messages.compactMap { ImapFetchResponse.parse($0.line) }
+                    let maps = parseBodies ? ImapFetchBodyParser.parseMaps(messages) : []
+                    let mapBySequence = Dictionary(uniqueKeysWithValues: maps.map { ($0.sequence, $0) })
+                    return fetches.compactMap { fetch in
+                        MessageSummary.build(fetch: fetch, bodyMap: mapBySequence[fetch.sequence])
+                    }
                 }
             }
         }

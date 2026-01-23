@@ -25,9 +25,16 @@ public struct FetchRequest: Sendable, Equatable {
     }
 
     public var imapItemList: String {
-        var tokens = items.imapTokens
+        imapItemList(previewFallback: nil)
+    }
+
+    public func imapItemList(previewFallback: ImapFetchPartial? = nil) -> String {
+        var tokens = items.imapTokens(includePreview: previewFallback == nil)
         if let headerToken = headerFetchToken(headers: headers, requestHeaders: items.contains(.headers), requestReferences: items.contains(.references)) {
             tokens.append(headerToken)
+        }
+        if let previewFallback {
+            tokens.append(ImapFetchBody.section(.text, peek: true, partial: previewFallback))
         }
 
         guard !tokens.isEmpty else { return "()" }
@@ -66,7 +73,7 @@ public struct FetchRequest: Sendable, Equatable {
 }
 
 private extension MessageSummaryItems {
-    var imapTokens: [String] {
+    func imapTokens(includePreview: Bool) -> [String] {
         var tokens: [String] = []
 
         if contains(.annotations) { tokens.append("ANNOTATION") }
@@ -83,7 +90,7 @@ private extension MessageSummaryItems {
         if contains(.gmailMessageId) { tokens.append("X-GM-MSGID") }
         if contains(.gmailThreadId) { tokens.append("X-GM-THRID") }
         if contains(.gmailLabels) { tokens.append("X-GM-LABELS") }
-        if contains(.previewText) { tokens.append("PREVIEW") }
+        if includePreview, contains(.previewText) { tokens.append("PREVIEW") }
         if contains(.saveDate) { tokens.append("SAVEDATE") }
 
         return tokens

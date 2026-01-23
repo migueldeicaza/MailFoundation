@@ -522,6 +522,19 @@ public actor AsyncImapSession {
         try await fetch(set, items: request.imapItemList, maxEmptyReads: maxEmptyReads)
     }
 
+    public func fetchSummaries(
+        _ set: String,
+        request: FetchRequest,
+        previewLength: Int = 512,
+        maxEmptyReads: Int = 10
+    ) async throws -> [MessageSummary] {
+        let needsBodies = request.items.contains(.headers) || request.items.contains(.references) || request.items.contains(.previewText)
+        let itemList = request.items.contains(.previewText)
+            ? request.imapItemList(previewFallback: ImapFetchPartial(start: 0, length: previewLength))
+            : request.imapItemList
+        return try await fetchSummariesWithQresync(set, items: itemList, parseBodies: needsBodies, maxEmptyReads: maxEmptyReads)
+    }
+
     public func fetchWithQresync(
         _ set: String,
         items: String,
@@ -549,6 +562,43 @@ public actor AsyncImapSession {
                 if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
                     if response.isOk {
                         return ImapFetchResult(responses: results, qresyncEvents: events)
+                    }
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func fetchSummariesWithQresync(
+        _ set: String,
+        items: String,
+        parseBodies: Bool,
+        maxEmptyReads: Int = 10
+    ) async throws -> [MessageSummary] {
+        let command = try await client.send(.fetch(set, items))
+        var messages: [ImapLiteralMessage] = []
+        var emptyReads = 0
+
+        while emptyReads < maxEmptyReads {
+            let batch = await client.nextMessages()
+            if batch.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            messages.append(contentsOf: batch)
+            for message in batch {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    if response.isOk {
+                        let fetches = messages.compactMap { ImapFetchResponse.parse($0.line) }
+                        let maps = parseBodies ? ImapFetchBodyParser.parseMaps(messages) : []
+                        let mapBySequence = Dictionary(uniqueKeysWithValues: maps.map { ($0.sequence, $0) })
+                        return fetches.compactMap { fetch in
+                            MessageSummary.build(fetch: fetch, bodyMap: mapBySequence[fetch.sequence])
+                        }
                     }
                     throw SessionError.imapError(status: response.status, text: response.text)
                 }
@@ -608,6 +658,19 @@ public actor AsyncImapSession {
         try await uidFetch(set, items: request.imapItemList, maxEmptyReads: maxEmptyReads)
     }
 
+    public func uidFetchSummaries(
+        _ set: UniqueIdSet,
+        request: FetchRequest,
+        previewLength: Int = 512,
+        maxEmptyReads: Int = 10
+    ) async throws -> [MessageSummary] {
+        let needsBodies = request.items.contains(.headers) || request.items.contains(.references) || request.items.contains(.previewText)
+        let itemList = request.items.contains(.previewText)
+            ? request.imapItemList(previewFallback: ImapFetchPartial(start: 0, length: previewLength))
+            : request.imapItemList
+        return try await uidFetchSummariesWithQresync(set, items: itemList, parseBodies: needsBodies, maxEmptyReads: maxEmptyReads)
+    }
+
     public func uidFetchWithQresync(
         _ set: UniqueIdSet,
         items: String,
@@ -635,6 +698,43 @@ public actor AsyncImapSession {
                 if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
                     if response.isOk {
                         return ImapFetchResult(responses: results, qresyncEvents: events)
+                    }
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func uidFetchSummariesWithQresync(
+        _ set: UniqueIdSet,
+        items: String,
+        parseBodies: Bool,
+        maxEmptyReads: Int = 10
+    ) async throws -> [MessageSummary] {
+        let command = try await client.send(.uidFetch(set.description, items))
+        var messages: [ImapLiteralMessage] = []
+        var emptyReads = 0
+
+        while emptyReads < maxEmptyReads {
+            let batch = await client.nextMessages()
+            if batch.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            messages.append(contentsOf: batch)
+            for message in batch {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    if response.isOk {
+                        let fetches = messages.compactMap { ImapFetchResponse.parse($0.line) }
+                        let maps = parseBodies ? ImapFetchBodyParser.parseMaps(messages) : []
+                        let mapBySequence = Dictionary(uniqueKeysWithValues: maps.map { ($0.sequence, $0) })
+                        return fetches.compactMap { fetch in
+                            MessageSummary.build(fetch: fetch, bodyMap: mapBySequence[fetch.sequence])
+                        }
                     }
                     throw SessionError.imapError(status: response.status, text: response.text)
                 }
