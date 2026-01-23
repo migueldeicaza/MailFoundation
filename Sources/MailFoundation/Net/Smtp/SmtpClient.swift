@@ -106,6 +106,14 @@ public final class SmtpClient {
     }
 
     @discardableResult
+    public func sendRaw(_ bytes: [UInt8]) -> [UInt8] {
+        protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
+        let written = transport?.write(bytes) ?? 0
+        lastWriteSucceeded = written == bytes.count
+        return bytes
+    }
+
+    @discardableResult
     public func sendLine(_ line: String) -> [UInt8] {
         let serialized: String
         if line.hasSuffix("\r\n") {

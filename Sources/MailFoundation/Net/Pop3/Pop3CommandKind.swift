@@ -20,6 +20,7 @@ public enum Pop3CommandKind: Sendable {
     case stls
     case apop(String, String)
     case auth(String, initialResponse: String?)
+    case last
 
     public func command() -> Pop3Command {
         switch self {
@@ -62,6 +63,8 @@ public enum Pop3CommandKind: Sendable {
                 return Pop3Command(keyword: "AUTH", arguments: "\(mechanism) \(response)")
             }
             return Pop3Command(keyword: "AUTH", arguments: mechanism)
+        case .last:
+            return Pop3Command(keyword: "LAST")
         }
     }
 }

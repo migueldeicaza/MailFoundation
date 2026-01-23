@@ -93,6 +93,13 @@ public actor AsyncSmtpClient {
     }
 
     @discardableResult
+    public func sendRaw(_ bytes: [UInt8]) async throws -> [UInt8] {
+        protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
+        try await transport.send(bytes)
+        return bytes
+    }
+
+    @discardableResult
     public func sendLine(_ line: String) async throws -> [UInt8] {
         let serialized: String
         if line.hasSuffix("\r\n") {

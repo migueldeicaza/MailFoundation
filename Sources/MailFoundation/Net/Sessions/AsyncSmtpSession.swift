@@ -69,8 +69,18 @@ public actor AsyncSmtpSession {
         return await client.waitForResponse()
     }
 
+    public func mailFrom(_ address: String, parameters: SmtpMailFromParameters) async throws -> SmtpResponse? {
+        _ = try await client.send(.mailFromParameters(address, parameters))
+        return await client.waitForResponse()
+    }
+
     public func rcptTo(_ address: String) async throws -> SmtpResponse? {
         _ = try await client.send(.rcptTo(address))
+        return await client.waitForResponse()
+    }
+
+    public func rcptTo(_ address: String, parameters: SmtpRcptToParameters) async throws -> SmtpResponse? {
+        _ = try await client.send(.rcptToParameters(address, parameters))
         return await client.waitForResponse()
     }
 
@@ -141,6 +151,110 @@ public actor AsyncSmtpSession {
         throw SessionError.timeout
     }
 
+    public func sendMail(
+        from: String,
+        to recipients: [String],
+        data: [UInt8],
+        mailParameters: SmtpMailFromParameters?,
+        rcptParameters: SmtpRcptToParameters?
+    ) async throws -> SmtpResponse {
+        if let mailParameters {
+            _ = try await client.send(.mailFromParameters(from, mailParameters))
+        } else {
+            _ = try await client.send(.mailFrom(from))
+        }
+        guard let mailResponse = await client.waitForResponse() else {
+            throw SessionError.timeout
+        }
+        guard mailResponse.isSuccess else {
+            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+        }
+
+        for recipient in recipients {
+            if let rcptParameters {
+                _ = try await client.send(.rcptToParameters(recipient, rcptParameters))
+            } else {
+                _ = try await client.send(.rcptTo(recipient))
+            }
+            guard let rcptResponse = await client.waitForResponse() else {
+                throw SessionError.timeout
+            }
+            guard rcptResponse.isSuccess else {
+                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+            }
+        }
+
+        if let response = try await client.sendData(data) {
+            if response.isSuccess {
+                return response
+            }
+            throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func sendBdat(_ data: [UInt8], last: Bool) async throws -> SmtpResponse {
+        _ = try await client.send(.bdat(data.count, last: last))
+        _ = try await client.sendRaw(data)
+        guard let response = await client.waitForResponse() else {
+            throw SessionError.timeout
+        }
+        guard response.isSuccess else {
+            throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        }
+        return response
+    }
+
+    public func sendMailChunked(
+        from: String,
+        to recipients: [String],
+        data: [UInt8],
+        chunkSize: Int = 4096,
+        mailParameters: SmtpMailFromParameters? = nil,
+        rcptParameters: SmtpRcptToParameters? = nil
+    ) async throws -> SmtpResponse {
+        let size = max(1, chunkSize)
+        if let mailParameters {
+            _ = try await client.send(.mailFromParameters(from, mailParameters))
+        } else {
+            _ = try await client.send(.mailFrom(from))
+        }
+        guard let mailResponse = await client.waitForResponse() else {
+            throw SessionError.timeout
+        }
+        guard mailResponse.isSuccess else {
+            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+        }
+
+        for recipient in recipients {
+            if let rcptParameters {
+                _ = try await client.send(.rcptToParameters(recipient, rcptParameters))
+            } else {
+                _ = try await client.send(.rcptTo(recipient))
+            }
+            guard let rcptResponse = await client.waitForResponse() else {
+                throw SessionError.timeout
+            }
+            guard rcptResponse.isSuccess else {
+                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+            }
+        }
+
+        var response = mailResponse
+        if !data.isEmpty {
+            var offset = 0
+            while offset < data.count {
+                let end = min(offset + size, data.count)
+                let chunk = Array(data[offset..<end])
+                let isLast = end == data.count
+                response = try await sendBdat(chunk, last: isLast)
+                offset = end
+            }
+        }
+        return response
+    }
+
     public func startTls(validateCertificate: Bool = true) async throws -> SmtpResponse {
         guard let tlsTransport = transport as? AsyncStartTlsTransport else {
             throw SessionError.startTlsNotSupported
@@ -154,6 +268,11 @@ public actor AsyncSmtpSession {
         }
         try await tlsTransport.startTLS(validateCertificate: validateCertificate)
         return response
+    }
+
+    public func etrn(_ argument: String) async throws -> SmtpResponse? {
+        _ = try await client.send(.etrn(argument))
+        return await client.waitForResponse()
     }
 
     public func capabilities() async -> SmtpCapabilities? {

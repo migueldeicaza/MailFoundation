@@ -130,8 +130,32 @@ public final class SmtpSession {
         throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
     }
 
+    public func mailFrom(_ address: String, parameters: SmtpMailFromParameters) throws -> SmtpResponse {
+        _ = client.send(.mailFromParameters(address, parameters))
+        try ensureWrite()
+        guard let response = client.waitForResponse(maxReads: maxReads) else {
+            throw SessionError.timeout
+        }
+        if response.isSuccess {
+            return response
+        }
+        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+    }
+
     public func rcptTo(_ address: String) throws -> SmtpResponse {
         _ = client.send(.rcptTo(address))
+        try ensureWrite()
+        guard let response = client.waitForResponse(maxReads: maxReads) else {
+            throw SessionError.timeout
+        }
+        if response.isSuccess {
+            return response
+        }
+        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+    }
+
+    public func rcptTo(_ address: String, parameters: SmtpRcptToParameters) throws -> SmtpResponse {
+        _ = client.send(.rcptToParameters(address, parameters))
         try ensureWrite()
         guard let response = client.waitForResponse(maxReads: maxReads) else {
             throw SessionError.timeout
@@ -224,6 +248,116 @@ public final class SmtpSession {
         throw SessionError.timeout
     }
 
+    public func sendMail(
+        from: String,
+        to recipients: [String],
+        data: [UInt8],
+        mailParameters: SmtpMailFromParameters?,
+        rcptParameters: SmtpRcptToParameters?
+    ) throws -> SmtpResponse {
+        if let mailParameters {
+            _ = client.send(.mailFromParameters(from, mailParameters))
+        } else {
+            _ = client.send(.mailFrom(from))
+        }
+        try ensureWrite()
+        guard let mailResponse = client.waitForResponse(maxReads: maxReads) else {
+            throw SessionError.timeout
+        }
+        guard mailResponse.isSuccess else {
+            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+        }
+
+        for recipient in recipients {
+            if let rcptParameters {
+                _ = client.send(.rcptToParameters(recipient, rcptParameters))
+            } else {
+                _ = client.send(.rcptTo(recipient))
+            }
+            try ensureWrite()
+            guard let rcptResponse = client.waitForResponse(maxReads: maxReads) else {
+                throw SessionError.timeout
+            }
+            guard rcptResponse.isSuccess else {
+                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+            }
+        }
+
+        if let dataResponse = client.sendData(data, maxReads: maxReads) {
+            try ensureWrite()
+            if dataResponse.isSuccess {
+                return dataResponse
+            }
+            throw SessionError.smtpError(code: dataResponse.code, message: dataResponse.lines.joined(separator: " "))
+        }
+        throw SessionError.timeout
+    }
+
+    public func sendBdat(_ data: [UInt8], last: Bool) throws -> SmtpResponse {
+        _ = client.send(.bdat(data.count, last: last))
+        try ensureWrite()
+        _ = client.sendRaw(data)
+        try ensureWrite()
+        guard let response = client.waitForResponse(maxReads: maxReads) else {
+            throw SessionError.timeout
+        }
+        guard response.isSuccess else {
+            throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        }
+        return response
+    }
+
+    public func sendMailChunked(
+        from: String,
+        to recipients: [String],
+        data: [UInt8],
+        chunkSize: Int = 4096,
+        mailParameters: SmtpMailFromParameters? = nil,
+        rcptParameters: SmtpRcptToParameters? = nil
+    ) throws -> SmtpResponse {
+        let size = max(1, chunkSize)
+        if let mailParameters {
+            _ = client.send(.mailFromParameters(from, mailParameters))
+        } else {
+            _ = client.send(.mailFrom(from))
+        }
+        try ensureWrite()
+        guard let mailResponse = client.waitForResponse(maxReads: maxReads) else {
+            throw SessionError.timeout
+        }
+        guard mailResponse.isSuccess else {
+            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+        }
+
+        for recipient in recipients {
+            if let rcptParameters {
+                _ = client.send(.rcptToParameters(recipient, rcptParameters))
+            } else {
+                _ = client.send(.rcptTo(recipient))
+            }
+            try ensureWrite()
+            guard let rcptResponse = client.waitForResponse(maxReads: maxReads) else {
+                throw SessionError.timeout
+            }
+            guard rcptResponse.isSuccess else {
+                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+            }
+        }
+
+        var response = mailResponse
+        if !data.isEmpty {
+            var offset = 0
+            while offset < data.count {
+                let end = min(offset + size, data.count)
+                let chunk = Array(data[offset..<end])
+                let isLast = end == data.count
+                response = try sendBdat(chunk, last: isLast)
+                offset = end
+            }
+        }
+        return response
+    }
+
     public func startTls(validateCertificate: Bool = true) throws -> SmtpResponse {
         guard let tlsTransport = transport as? StartTlsTransport else {
             throw SessionError.startTlsNotSupported
@@ -238,6 +372,18 @@ public final class SmtpSession {
         }
         tlsTransport.startTLS(validateCertificate: validateCertificate)
         return response
+    }
+
+    public func etrn(_ argument: String) throws -> SmtpResponse {
+        _ = client.send(.etrn(argument))
+        try ensureWrite()
+        guard let response = client.waitForResponse(maxReads: maxReads) else {
+            throw SessionError.timeout
+        }
+        if response.isSuccess {
+            return response
+        }
+        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
     }
 
     private func ensureWrite() throws {

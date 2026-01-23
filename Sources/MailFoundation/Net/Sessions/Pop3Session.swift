@@ -279,6 +279,29 @@ public final class Pop3Session {
         throw SessionError.pop3Error(message: response.message)
     }
 
+    public func last() throws -> Int {
+        try ensureAuthenticated()
+        _ = client.send(.last)
+        try ensureWrite()
+        guard let response = client.waitForResponse(maxReads: maxReads) else {
+            throw SessionError.timeout
+        }
+        guard response.isSuccess, let value = Int(response.message) else {
+            throw SessionError.pop3Error(message: response.message)
+        }
+        return value
+    }
+
+    public func retrBytes(_ index: Int) throws -> [UInt8] {
+        let lines = try retr(index)
+        return assembleBytes(from: lines)
+    }
+
+    public func topBytes(_ index: Int, lines: Int) throws -> [UInt8] {
+        let result = try top(index, lines: lines)
+        return assembleBytes(from: result)
+    }
+
     public func startTls(validateCertificate: Bool = true) throws -> Pop3Response {
         guard let tlsTransport = transport as? StartTlsTransport else {
             throw SessionError.startTlsNotSupported
@@ -317,6 +340,12 @@ public final class Pop3Session {
         guard client.state == .authenticated else {
             throw SessionError.invalidState(expected: .authenticated, actual: state)
         }
+    }
+
+    private func assembleBytes(from lines: [String]) -> [UInt8] {
+        guard !lines.isEmpty else { return [] }
+        let joined = lines.joined(separator: "\r\n")
+        return Array(joined.utf8)
     }
 }
 

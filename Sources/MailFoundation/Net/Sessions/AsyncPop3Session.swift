@@ -161,6 +161,28 @@ public actor AsyncPop3Session {
         throw SessionError.pop3Error(message: response.message)
     }
 
+    public func last() async throws -> Int {
+        try await ensureAuthenticated()
+        _ = try await client.send(.last)
+        guard let response = await client.waitForResponse() else {
+            throw SessionError.timeout
+        }
+        guard response.isSuccess, let value = Int(response.message) else {
+            throw SessionError.pop3Error(message: response.message)
+        }
+        return value
+    }
+
+    public func retrBytes(_ index: Int) async throws -> [UInt8] {
+        let lines = try await retr(index)
+        return assembleBytes(from: lines)
+    }
+
+    public func topBytes(_ index: Int, lines: Int) async throws -> [UInt8] {
+        let result = try await top(index, lines: lines)
+        return assembleBytes(from: result)
+    }
+
     public func list() async throws -> [Pop3ListItem] {
         try await ensureAuthenticated()
         await client.expectMultilineResponse()
@@ -232,6 +254,12 @@ public actor AsyncPop3Session {
             let mailState: MailServiceState = clientState == .disconnected ? .disconnected : .connected
             throw SessionError.invalidState(expected: .authenticated, actual: mailState)
         }
+    }
+
+    private func assembleBytes(from lines: [String]) -> [UInt8] {
+        guard !lines.isEmpty else { return [] }
+        let joined = lines.joined(separator: "\r\n")
+        return Array(joined.utf8)
     }
 }
 
