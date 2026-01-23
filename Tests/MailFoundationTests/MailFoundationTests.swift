@@ -1636,7 +1636,7 @@ func asyncSmtpTransportSendMessage() async throws {
 
     let sent = await transport.sentSnapshot()
     let combined = sent.map { String(decoding: $0, as: UTF8.self) }.joined()
-    #expect(combined.contains("MAIL FROM:<alice@example.com>\r\n"))
+    #expect(combined.contains("MAIL FROM:<alice@example.com>"))
     #expect(combined.contains("RCPT TO:<bob@example.com>\r\n"))
     #expect(!combined.contains("Bcc:"))
 }
@@ -2366,7 +2366,7 @@ func syncSmtpSessionFlow() throws {
     _ = try session.sendMail(from: "alice@example.com", to: ["bob@example.com"], data: Array("Hello\r\n".utf8))
     let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
     #expect(sent.contains("EHLO localhost\r\n"))
-    #expect(sent.contains("MAIL FROM:<alice@example.com>\r\n"))
+    #expect(sent.contains(where: { $0.hasPrefix("MAIL FROM:<alice@example.com>") }))
 }
 
 @Test("Sync SMTP auth challenge flow")
@@ -2410,7 +2410,7 @@ func smtpTransportSendMessage() throws {
     #expect(response.isSuccess)
 
     let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
-    #expect(sent.contains("MAIL FROM:<alice@example.com>\r\n"))
+    #expect(sent.contains(where: { $0.hasPrefix("MAIL FROM:<alice@example.com>") }))
     #expect(sent.contains("RCPT TO:<bob@example.com>\r\n"))
     #expect(!sent.joined().contains("Bcc:"))
 }

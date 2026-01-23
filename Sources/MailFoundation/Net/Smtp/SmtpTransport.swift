@@ -91,10 +91,13 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
         progress: TransferProgress? = nil
     ) throws -> SmtpResponse {
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
+        let mailParameters = resolveMailParameters(nil, data: envelope.data)
         let response = try session.sendMail(
             from: envelope.sender.address,
             to: envelope.recipients.map { $0.address },
-            data: envelope.data
+            data: envelope.data,
+            mailParameters: mailParameters,
+            rcptParameters: nil
         )
         notifyMessageSent(response: response.lines.joined(separator: " "))
         return response
@@ -108,10 +111,13 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
         progress: TransferProgress? = nil
     ) throws -> SmtpResponse {
         let data = try MailTransportEnvelopeBuilder.encodeMessage(message, options: options, progress: progress)
+        let mailParameters = resolveMailParameters(nil, data: data)
         let response = try session.sendMail(
             from: sender.address,
             to: recipients.map { $0.address },
-            data: data
+            data: data,
+            mailParameters: mailParameters,
+            rcptParameters: nil
         )
         notifyMessageSent(response: response.lines.joined(separator: " "))
         return response
@@ -126,14 +132,26 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
         rcptParameters: SmtpRcptToParameters? = nil
     ) throws -> SmtpResponse {
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
-        let response = try session.sendMailChunked(
-            from: envelope.sender.address,
-            to: envelope.recipients.map { $0.address },
-            data: envelope.data,
-            chunkSize: chunkSize,
-            mailParameters: mailParameters,
-            rcptParameters: rcptParameters
-        )
+        let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data)
+        let response: SmtpResponse
+        if supportsCapability("CHUNKING") {
+            response = try session.sendMailChunked(
+                from: envelope.sender.address,
+                to: envelope.recipients.map { $0.address },
+                data: envelope.data,
+                chunkSize: chunkSize,
+                mailParameters: resolvedMailParameters,
+                rcptParameters: rcptParameters
+            )
+        } else {
+            response = try session.sendMail(
+                from: envelope.sender.address,
+                to: envelope.recipients.map { $0.address },
+                data: envelope.data,
+                mailParameters: resolvedMailParameters,
+                rcptParameters: rcptParameters
+            )
+        }
         notifyMessageSent(response: response.lines.joined(separator: " "))
         return response
     }
@@ -146,19 +164,38 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
         rcptParameters: SmtpRcptToParameters? = nil
     ) throws -> SmtpResponse {
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
-        let response = try session.sendMailPipelined(
-            from: envelope.sender.address,
-            to: envelope.recipients.map { $0.address },
-            data: envelope.data,
-            mailParameters: mailParameters,
-            rcptParameters: rcptParameters
-        )
+        let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data)
+        let response: SmtpResponse
+        if supportsCapability("PIPELINING") {
+            response = try session.sendMailPipelined(
+                from: envelope.sender.address,
+                to: envelope.recipients.map { $0.address },
+                data: envelope.data,
+                mailParameters: resolvedMailParameters,
+                rcptParameters: rcptParameters
+            )
+        } else {
+            response = try session.sendMail(
+                from: envelope.sender.address,
+                to: envelope.recipients.map { $0.address },
+                data: envelope.data,
+                mailParameters: resolvedMailParameters,
+                rcptParameters: rcptParameters
+            )
+        }
         notifyMessageSent(response: response.lines.joined(separator: " "))
         return response
     }
 
     public func sendMessage(from: String, to recipients: [String], data: [UInt8]) throws {
-        _ = try session.sendMail(from: from, to: recipients, data: data)
+        let mailParameters = resolveMailParameters(nil, data: data)
+        _ = try session.sendMail(
+            from: from,
+            to: recipients,
+            data: data,
+            mailParameters: mailParameters,
+            rcptParameters: nil
+        )
     }
 
     private func updateAuthenticationMechanisms(from capabilities: SmtpCapabilities) {
@@ -180,5 +217,30 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
         } else {
             updateAuthenticationMechanisms(mechanisms)
         }
+    }
+
+    private func supportsCapability(_ name: String) -> Bool {
+        storedCapabilities?.supports(name) ?? false
+    }
+
+    private func resolveMailParameters(_ base: SmtpMailFromParameters?, data: [UInt8]) -> SmtpMailFromParameters? {
+        var parameters = base ?? SmtpMailFromParameters()
+        var hasParameters = base != nil
+
+        if supportsCapability("SIZE"), parameters.size == nil {
+            parameters.size = data.count
+            hasParameters = true
+        }
+
+        if supportsCapability("8BITMIME"), parameters.body == nil, dataContainsNonAscii(data) {
+            parameters.body = .eightBitMime
+            hasParameters = true
+        }
+
+        return hasParameters ? parameters : nil
+    }
+
+    private func dataContainsNonAscii(_ data: [UInt8]) -> Bool {
+        data.contains { $0 > 0x7f }
     }
 }

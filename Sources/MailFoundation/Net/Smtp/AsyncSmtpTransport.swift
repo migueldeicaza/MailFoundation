@@ -89,10 +89,13 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         progress: TransferProgress? = nil
     ) async throws -> SmtpResponse {
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
+        let mailParameters = resolveMailParameters(nil, data: envelope.data)
         return try await session.sendMail(
             from: envelope.sender.address,
             to: envelope.recipients.map { $0.address },
-            data: envelope.data
+            data: envelope.data,
+            mailParameters: mailParameters,
+            rcptParameters: nil
         )
     }
 
@@ -104,10 +107,13 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         progress: TransferProgress? = nil
     ) async throws -> SmtpResponse {
         let data = try MailTransportEnvelopeBuilder.encodeMessage(message, options: options, progress: progress)
+        let mailParameters = resolveMailParameters(nil, data: data)
         return try await session.sendMail(
             from: sender.address,
             to: recipients.map { $0.address },
-            data: data
+            data: data,
+            mailParameters: mailParameters,
+            rcptParameters: nil
         )
     }
 
@@ -120,12 +126,22 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         rcptParameters: SmtpRcptToParameters? = nil
     ) async throws -> SmtpResponse {
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
-        return try await session.sendMailChunked(
+        let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data)
+        if supportsCapability("CHUNKING") {
+            return try await session.sendMailChunked(
+                from: envelope.sender.address,
+                to: envelope.recipients.map { $0.address },
+                data: envelope.data,
+                chunkSize: chunkSize,
+                mailParameters: resolvedMailParameters,
+                rcptParameters: rcptParameters
+            )
+        }
+        return try await session.sendMail(
             from: envelope.sender.address,
             to: envelope.recipients.map { $0.address },
             data: envelope.data,
-            chunkSize: chunkSize,
-            mailParameters: mailParameters,
+            mailParameters: resolvedMailParameters,
             rcptParameters: rcptParameters
         )
     }
@@ -138,17 +154,34 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         rcptParameters: SmtpRcptToParameters? = nil
     ) async throws -> SmtpResponse {
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
-        return try await session.sendMailPipelined(
+        let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data)
+        if supportsCapability("PIPELINING") {
+            return try await session.sendMailPipelined(
+                from: envelope.sender.address,
+                to: envelope.recipients.map { $0.address },
+                data: envelope.data,
+                mailParameters: resolvedMailParameters,
+                rcptParameters: rcptParameters
+            )
+        }
+        return try await session.sendMail(
             from: envelope.sender.address,
             to: envelope.recipients.map { $0.address },
             data: envelope.data,
-            mailParameters: mailParameters,
+            mailParameters: resolvedMailParameters,
             rcptParameters: rcptParameters
         )
     }
 
     public func sendMessage(from: String, to recipients: [String], data: [UInt8]) async throws {
-        _ = try await session.sendMail(from: from, to: recipients, data: data)
+        let mailParameters = resolveMailParameters(nil, data: data)
+        _ = try await session.sendMail(
+            from: from,
+            to: recipients,
+            data: data,
+            mailParameters: mailParameters,
+            rcptParameters: nil
+        )
     }
 
     private func updateAuthenticationMechanisms(from capabilities: SmtpCapabilities) {
@@ -166,5 +199,30 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         }
 
         authenticationMechanisms = Set(mechanisms.map { $0.uppercased() })
+    }
+
+    private func supportsCapability(_ name: String) -> Bool {
+        storedCapabilities?.supports(name) ?? false
+    }
+
+    private func resolveMailParameters(_ base: SmtpMailFromParameters?, data: [UInt8]) -> SmtpMailFromParameters? {
+        var parameters = base ?? SmtpMailFromParameters()
+        var hasParameters = base != nil
+
+        if supportsCapability("SIZE"), parameters.size == nil {
+            parameters.size = data.count
+            hasParameters = true
+        }
+
+        if supportsCapability("8BITMIME"), parameters.body == nil, dataContainsNonAscii(data) {
+            parameters.body = .eightBitMime
+            hasParameters = true
+        }
+
+        return hasParameters ? parameters : nil
+    }
+
+    private func dataContainsNonAscii(_ data: [UInt8]) -> Bool {
+        data.contains { $0 > 0x7f }
     }
 }
