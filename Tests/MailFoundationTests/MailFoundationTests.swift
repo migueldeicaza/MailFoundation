@@ -283,6 +283,22 @@ func imapBodyStructureParsing() {
     if let multipart = ImapBodyStructure.parse(multiRaw) {
         let parts = multipart.enumerateParts()
         #expect(parts.map { $0.0 } == ["1", "2"])
+        #expect(multipart.part(for: "2")?.subtype.uppercased() == "HTML")
+        let section = ImapFetchBodySection(part: [2], subsection: .header)
+        if let resolution = multipart.resolve(section: section) {
+            if case let .part(id, node) = resolution.scope {
+                #expect(id == "2")
+                if case .single = node {
+                    #expect(resolution.subsection == .header)
+                } else {
+                    #expect(Bool(false))
+                }
+            } else {
+                #expect(Bool(false))
+            }
+        } else {
+            #expect(Bool(false))
+        }
     } else {
         #expect(Bool(false))
     }
@@ -292,6 +308,17 @@ func imapBodyStructureParsing() {
         #expect(parts.first?.0 == "1")
         #expect(parts.count >= 2)
         #expect(parts[1].0 == "1.1")
+        #expect(embedded.part(for: "1")?.type.uppercased() == "MESSAGE")
+        #expect(embedded.part(for: "1.1")?.type.uppercased() == "TEXT")
+        if let resolution = embedded.resolve(section: .header) {
+            if case .message = resolution.scope {
+                #expect(resolution.subsection == .header)
+            } else {
+                #expect(Bool(false))
+            }
+        } else {
+            #expect(Bool(false))
+        }
     } else {
         #expect(Bool(false))
     }

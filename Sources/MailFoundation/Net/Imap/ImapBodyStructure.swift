@@ -57,6 +57,28 @@ public indirect enum ImapBodyStructure: Sendable, Equatable {
         return result
     }
 
+    public func node(for id: String) -> ImapBodyStructure? {
+        guard let path = Self.parsePartPath(id) else { return nil }
+        return node(for: path)
+    }
+
+    public func part(for id: String) -> ImapBodyPart? {
+        guard let node = node(for: id) else { return nil }
+        if case let .single(part) = node {
+            return part
+        }
+        return nil
+    }
+
+    public func resolve(section: ImapFetchBodySection) -> ImapBodySectionResolution? {
+        if section.part.isEmpty {
+            return ImapBodySectionResolution(scope: .message, subsection: section.subsection)
+        }
+        guard let node = node(for: section.part) else { return nil }
+        let id = section.part.map { String($0) }.joined(separator: ".")
+        return ImapBodySectionResolution(scope: .part(id: id, node: node), subsection: section.subsection)
+    }
+
     private func enumerateParts(prefix: String, into result: inout [(String, ImapBodyPart)]) {
         switch self {
         case .single(let part):
@@ -73,6 +95,52 @@ public indirect enum ImapBodyStructure: Sendable, Equatable {
             }
         }
     }
+
+    private func node(for path: [Int]) -> ImapBodyStructure? {
+        guard let head = path.first else { return nil }
+        switch self {
+        case .single(let part):
+            guard head == 1 else { return nil }
+            if path.count == 1 {
+                return self
+            }
+            guard let embedded = part.embedded else { return nil }
+            let remaining = Array(path.dropFirst())
+            return embedded.node(for: remaining)
+        case .multipart(let multipart):
+            let index = head - 1
+            guard index >= 0, index < multipart.parts.count else { return nil }
+            let child = multipart.parts[index]
+            if path.count == 1 {
+                return child
+            }
+            let remaining = Array(path.dropFirst())
+            return child.node(for: remaining)
+        }
+    }
+
+    private static func parsePartPath(_ id: String) -> [Int]? {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let parts = trimmed.split(separator: ".", omittingEmptySubsequences: true)
+        guard !parts.isEmpty else { return nil }
+        var result: [Int] = []
+        for part in parts {
+            guard let value = Int(part), value > 0 else { return nil }
+            result.append(value)
+        }
+        return result
+    }
+}
+
+public enum ImapBodySectionScope: Sendable, Equatable {
+    case message
+    case part(id: String, node: ImapBodyStructure)
+}
+
+public struct ImapBodySectionResolution: Sendable, Equatable {
+    public let scope: ImapBodySectionScope
+    public let subsection: ImapFetchBodySubsection?
 }
 
 private enum ImapBodyNode: Equatable {

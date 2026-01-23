@@ -8,6 +8,8 @@ public final class ImapSession {
     private let client: ImapClient
     private let transport: Transport
     private let maxReads: Int
+    public private(set) var selectedMailbox: String?
+    public private(set) var selectedState = ImapSelectedState()
 
     public init(transport: Transport, protocolLogger: ProtocolLoggerType = NullProtocolLogger(), maxReads: Int = 10) {
         self.transport = transport
@@ -30,6 +32,8 @@ public final class ImapSession {
     public func disconnect() {
         _ = client.send(.logout)
         transport.close()
+        selectedMailbox = nil
+        selectedState = ImapSelectedState()
     }
 
     public func capability() throws -> ImapResponse {
@@ -59,13 +63,30 @@ public final class ImapSession {
     public func select(mailbox: String) throws -> ImapResponse {
         let command = client.send(.select(mailbox))
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
-            throw SessionError.timeout
+        var reads = 0
+        var nextState = ImapSelectedState()
+
+        while reads < maxReads {
+            let messages = client.receiveWithLiterals()
+            if messages.isEmpty {
+                reads += 1
+                continue
+            }
+
+            for message in messages {
+                applySelectedState(&nextState, mailbox: mailbox, from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    selectedMailbox = mailbox
+                    selectedState = nextState
+                    return response
+                }
+            }
         }
-        guard response.isOk else {
-            throw SessionError.imapError(status: response.status, text: response.text)
-        }
-        return response
+
+        throw SessionError.timeout
     }
 
     public func search(_ criteria: String) throws -> ImapSearchResponse {
@@ -100,9 +121,15 @@ public final class ImapSession {
     }
 
     public func fetch(_ set: String, items: String) throws -> [ImapFetchResponse] {
+        let result = try fetchWithQresync(set, items: items)
+        return result.responses
+    }
+
+    public func fetchWithQresync(_ set: String, items: String) throws -> ImapFetchResult {
         let command = client.send(.fetch(set, items))
         try ensureWrite()
         var results: [ImapFetchResponse] = []
+        var events: [ImapQresyncEvent] = []
         var reads = 0
 
         while reads < maxReads {
@@ -113,6 +140,9 @@ public final class ImapSession {
             }
 
             for message in messages {
+                if let event = ingestSelectedState(from: message) {
+                    events.append(event)
+                }
                 if let fetch = ImapFetchResponse.parse(message.line) {
                     results.append(fetch)
                 }
@@ -120,7 +150,7 @@ public final class ImapSession {
                     guard response.isOk else {
                         throw SessionError.imapError(status: response.status, text: response.text)
                     }
-                    return results
+                    return ImapFetchResult(responses: results, qresyncEvents: events)
                 }
             }
         }
@@ -147,6 +177,7 @@ public final class ImapSession {
             }
 
             for message in messages {
+                _ = ingestSelectedState(from: message)
                 if let status = ImapStatusResponse.parse(message.line) {
                     result = status
                 }
@@ -155,6 +186,9 @@ public final class ImapSession {
                         throw SessionError.imapError(status: response.status, text: response.text)
                     }
                     if let result {
+                        if selectedMailbox == mailbox {
+                            selectedState.apply(status: result)
+                        }
                         return result
                     }
                     throw SessionError.imapError(status: response.status, text: "STATUS response missing")
@@ -201,6 +235,7 @@ public final class ImapSession {
                 continue
             }
             for message in messages {
+                _ = ingestSelectedState(from: message)
                 if let event = ImapIdleEvent.parse(message.line) {
                     events.append(event)
                 }
@@ -228,7 +263,7 @@ public final class ImapSession {
                 continue
             }
             for message in messages {
-                if let event = ImapQresyncEvent.parse(message, validity: validity) {
+                if let event = ingestSelectedState(from: message, validity: validity) {
                     events.append(event)
                 }
             }
@@ -260,5 +295,55 @@ public final class ImapSession {
         if !client.lastWriteSucceeded {
             throw SessionError.transportWriteFailed
         }
+    }
+
+    private func applySelectedState(_ state: inout ImapSelectedState, mailbox: String, from message: ImapLiteralMessage) {
+        if let response = message.response {
+            state.apply(response: response)
+        } else if let response = ImapResponse.parse(message.line) {
+            state.apply(response: response)
+        }
+        if let modSeq = ImapModSeqResponse.parse(message.line) {
+            state.apply(modSeq: modSeq)
+        }
+        if let status = ImapStatusResponse.parse(message.line), status.mailbox == mailbox {
+            state.apply(status: status)
+        }
+        if let listStatus = ImapListStatusResponse.parse(message.line), listStatus.mailbox.name == mailbox {
+            state.apply(listStatus: listStatus)
+        }
+        if let event = ImapQresyncEvent.parse(message, validity: state.uidValidity ?? 0) {
+            state.apply(event: event)
+        }
+    }
+
+    private func ingestSelectedState(from message: ImapLiteralMessage, validity: UInt32? = nil) -> ImapQresyncEvent? {
+        if let response = message.response {
+            selectedState.apply(response: response)
+        } else if let response = ImapResponse.parse(message.line) {
+            selectedState.apply(response: response)
+        }
+        if let modSeq = ImapModSeqResponse.parse(message.line) {
+            selectedState.apply(modSeq: modSeq)
+        }
+        if let status = ImapStatusResponse.parse(message.line),
+           let selectedMailbox,
+           status.mailbox == selectedMailbox {
+            selectedState.apply(status: status)
+        }
+        if let listStatus = ImapListStatusResponse.parse(message.line),
+           let selectedMailbox,
+           listStatus.mailbox.name == selectedMailbox {
+            selectedState.apply(listStatus: listStatus)
+        }
+        if let validity, validity > 0, selectedState.uidValidity == nil {
+            selectedState.uidValidity = validity
+        }
+        let validity = validity ?? selectedState.uidValidity ?? 0
+        if let event = ImapQresyncEvent.parse(message, validity: validity) {
+            selectedState.apply(event: event)
+            return event
+        }
+        return nil
     }
 }
