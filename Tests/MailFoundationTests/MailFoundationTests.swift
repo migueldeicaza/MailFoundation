@@ -1526,6 +1526,8 @@ func asyncImapSessionSelectedStateQresync() async throws {
     _ = try await connectTask.value
 
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
+    await transport.yieldIncoming(Array("* 3 EXISTS\r\n".utf8))
+    await transport.yieldIncoming(Array("* 1 RECENT\r\n".utf8))
     await transport.yieldIncoming(Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8))
     await transport.yieldIncoming(Array("* OK [UIDNEXT 10] Next\r\n".utf8))
     await transport.yieldIncoming(Array("* OK [HIGHESTMODSEQ 55] Modseq\r\n".utf8))
@@ -1537,9 +1539,12 @@ func asyncImapSessionSelectedStateQresync() async throws {
     #expect(selected.uidValidity == 7)
     #expect(selected.uidNext == 10)
     #expect(selected.highestModSeq == 55)
+    #expect(selected.messageCount == 3)
+    #expect(selected.recentCount == 1)
 
     let fetchTask = Task { try await session.fetchWithQresync("1", items: "UID MODSEQ") }
     await transport.yieldIncoming(Array("* 1 FETCH (UID 100 MODSEQ (57))\r\n".utf8))
+    await transport.yieldIncoming(Array("* 2 EXPUNGE\r\n".utf8))
     await transport.yieldIncoming(Array("* VANISHED 101:102\r\n".utf8))
     await transport.yieldIncoming(Array("A0002 OK FETCH\r\n".utf8))
     let result = try await fetchTask.value
@@ -1547,6 +1552,56 @@ func asyncImapSessionSelectedStateQresync() async throws {
     #expect(result.qresyncEvents.count == 2)
     let updated = await session.selectedState
     #expect(updated.highestModSeq == 57)
+    #expect(updated.messageCount == 2)
+    #expect(updated.lastExpungeSequence == 2)
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP session BODY fetch maps with QRESYNC")
+func asyncImapSessionBodyFetchMapsQresync() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncImapSession(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let fetchTask = Task { try await session.fetchBodySectionsWithQresync("1", items: "BODY[]") }
+    await transport.yieldIncoming(Array("* 1 FETCH (BODY[] {5}\r\n".utf8))
+    await transport.yieldIncoming(Array("Hello".utf8))
+    await transport.yieldIncoming(Array("* VANISHED 2\r\n".utf8))
+    await transport.yieldIncoming(Array("A0001 OK FETCH\r\n".utf8))
+    let result = try await fetchTask.value
+    #expect(result.bodies.count == 1)
+    #expect(result.bodies.first?.body() == Array("Hello".utf8))
+    #expect(result.qresyncEvents.count == 1)
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP session UID fetch mapping")
+func asyncImapSessionUidFetchMapping() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncImapSession(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let selectTask = Task { try await session.select(mailbox: "INBOX") }
+    await transport.yieldIncoming(Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8))
+    await transport.yieldIncoming(Array("A0001 OK SELECT\r\n".utf8))
+    _ = try await selectTask.value
+
+    let uidSet = UniqueIdSet([UniqueId(validity: 7, id: 100), UniqueId(validity: 7, id: 200)])
+    let fetchTask = Task { try await session.uidFetchWithQresync(uidSet, items: "UID MODSEQ") }
+    await transport.yieldIncoming(Array("* 1 FETCH (UID 100 MODSEQ (56))\r\n".utf8))
+    await transport.yieldIncoming(Array("* 2 FETCH (UID 200 MODSEQ (57))\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK UID FETCH\r\n".utf8))
+    _ = try await fetchTask.value
+
+    let state = await session.selectedState
+    #expect(state.uidBySequence[1]?.id == 100)
+    #expect(state.uidBySequence[2]?.id == 200)
 }
 
 @available(macOS 10.15, iOS 13.0, *)
@@ -1664,11 +1719,14 @@ func syncImapSessionFlow() throws {
 func syncImapSessionSelectedStateQresync() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
+        Array("* 3 EXISTS\r\n".utf8),
+        Array("* 1 RECENT\r\n".utf8),
         Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8),
         Array("* OK [UIDNEXT 10] Next\r\n".utf8),
         Array("* OK [HIGHESTMODSEQ 55] Modseq\r\n".utf8),
         Array("A0001 OK SELECT\r\n".utf8),
         Array("* 1 FETCH (UID 100 MODSEQ (57))\r\n".utf8),
+        Array("* 2 EXPUNGE\r\n".utf8),
         Array("* VANISHED 101:102\r\n".utf8),
         Array("A0002 OK FETCH\r\n".utf8)
     ])
@@ -1679,11 +1737,65 @@ func syncImapSessionSelectedStateQresync() throws {
     #expect(session.selectedState.uidValidity == 7)
     #expect(session.selectedState.uidNext == 10)
     #expect(session.selectedState.highestModSeq == 55)
+    #expect(session.selectedState.messageCount == 3)
+    #expect(session.selectedState.recentCount == 1)
 
     let result = try session.fetchWithQresync("1", items: "UID MODSEQ")
     #expect(result.responses.count == 1)
     #expect(result.qresyncEvents.count == 2)
     #expect(session.selectedState.highestModSeq == 57)
+    #expect(session.selectedState.messageCount == 2)
+    #expect(session.selectedState.lastExpungeSequence == 2)
+}
+
+@Test("Sync IMAP session BODY fetch maps with QRESYNC")
+func syncImapSessionBodyFetchMapsQresync() throws {
+    let transport = TestTransport(incoming: [
+        Array("* OK Ready\r\n".utf8),
+        Array("* 1 FETCH (BODY[] {5}\r\n".utf8),
+        Array("Hello".utf8),
+        Array("* VANISHED 2\r\n".utf8),
+        Array("A0001 OK FETCH\r\n".utf8)
+    ])
+    let session = ImapSession(transport: transport, maxReads: 4)
+    _ = try session.connect()
+    let result = try session.fetchBodySectionsWithQresync("1", items: "BODY[]")
+    #expect(result.bodies.count == 1)
+    #expect(result.bodies.first?.body() == Array("Hello".utf8))
+    #expect(result.qresyncEvents.count == 1)
+}
+
+@Test("Sync IMAP UID fetch/store mapping updates")
+func syncImapSessionUidFetchStoreMapping() throws {
+    let transport = TestTransport(incoming: [
+        Array("* OK Ready\r\n".utf8),
+        Array("* 2 EXISTS\r\n".utf8),
+        Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8),
+        Array("A0001 OK SELECT\r\n".utf8),
+        Array("* 1 FETCH (UID 100 MODSEQ (56))\r\n".utf8),
+        Array("* 2 FETCH (UID 200 MODSEQ (57))\r\n".utf8),
+        Array("A0002 OK UID FETCH\r\n".utf8),
+        Array("* 1 EXPUNGE\r\n".utf8),
+        Array("* 1 FETCH (UID 200 MODSEQ (58) FLAGS (\\Seen))\r\n".utf8),
+        Array("A0003 OK UID STORE\r\n".utf8)
+    ])
+    let session = ImapSession(transport: transport, maxReads: 10)
+    _ = try session.connect()
+    _ = try session.select(mailbox: "INBOX")
+
+    let uidSet = UniqueIdSet([UniqueId(validity: 7, id: 100), UniqueId(validity: 7, id: 200)])
+    let fetchResult = try session.uidFetchWithQresync(uidSet, items: "UID MODSEQ")
+    #expect(fetchResult.responses.count == 2)
+    #expect(session.selectedState.uidBySequence[1]?.id == 100)
+    #expect(session.selectedState.uidBySequence[2]?.id == 200)
+    #expect(session.selectedState.messageCount == 2)
+
+    let storeResult = try session.uidStoreWithQresync(uidSet, data: "+FLAGS (\\Seen)")
+    #expect(storeResult.responses.count == 1)
+    #expect(session.selectedState.messageCount == 1)
+    #expect(session.selectedState.uidBySequence[1]?.id == 200)
+    let uid200 = UniqueId(validity: 7, id: 200)
+    #expect(session.selectedState.sequenceByUid[uid200] == 1)
 }
 
 class TestTransport: Transport {

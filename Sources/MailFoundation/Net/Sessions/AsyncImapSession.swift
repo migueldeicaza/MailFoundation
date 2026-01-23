@@ -189,6 +189,129 @@ public actor AsyncImapSession {
         throw SessionError.timeout
     }
 
+    public func fetchBodySections(_ set: String, items: String, maxEmptyReads: Int = 10) async throws -> [ImapFetchBodyMap] {
+        let result = try await fetchBodySectionsWithQresync(set, items: items, maxEmptyReads: maxEmptyReads)
+        return result.bodies
+    }
+
+    public func fetchBodySectionsWithQresync(
+        _ set: String,
+        items: String,
+        validity: UInt32? = nil,
+        maxEmptyReads: Int = 10
+    ) async throws -> ImapFetchBodyQresyncResult {
+        let command = try await client.send(.fetch(set, items))
+        var messages: [ImapLiteralMessage] = []
+        var events: [ImapQresyncEvent] = []
+        var emptyReads = 0
+
+        while emptyReads < maxEmptyReads {
+            let batch = await client.nextMessages()
+            if batch.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in batch {
+                messages.append(message)
+                if let event = ingestSelectedState(from: message, validity: validity) {
+                    events.append(event)
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    if response.isOk {
+                        let bodies = ImapFetchBodyParser.parseMaps(messages)
+                        return ImapFetchBodyQresyncResult(bodies: bodies, qresyncEvents: events)
+                    }
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func uidFetch(_ set: UniqueIdSet, items: String, maxEmptyReads: Int = 10) async throws -> [ImapFetchResponse] {
+        let result = try await uidFetchWithQresync(set, items: items, maxEmptyReads: maxEmptyReads)
+        return result.responses
+    }
+
+    public func uidFetchWithQresync(
+        _ set: UniqueIdSet,
+        items: String,
+        maxEmptyReads: Int = 10
+    ) async throws -> ImapFetchResult {
+        let command = try await client.send(.uidFetch(set.description, items))
+        var results: [ImapFetchResponse] = []
+        var events: [ImapQresyncEvent] = []
+        var emptyReads = 0
+
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let event = ingestSelectedState(from: message) {
+                    events.append(event)
+                }
+                if let fetch = ImapFetchResponse.parse(message.line) {
+                    results.append(fetch)
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    if response.isOk {
+                        return ImapFetchResult(responses: results, qresyncEvents: events)
+                    }
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func uidStore(_ set: UniqueIdSet, data: String, maxEmptyReads: Int = 10) async throws -> [ImapFetchResponse] {
+        let result = try await uidStoreWithQresync(set, data: data, maxEmptyReads: maxEmptyReads)
+        return result.responses
+    }
+
+    public func uidStoreWithQresync(
+        _ set: UniqueIdSet,
+        data: String,
+        maxEmptyReads: Int = 10
+    ) async throws -> ImapFetchResult {
+        let command = try await client.send(.uidStore(set.description, data))
+        var results: [ImapFetchResponse] = []
+        var events: [ImapQresyncEvent] = []
+        var emptyReads = 0
+
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let event = ingestSelectedState(from: message) {
+                    events.append(event)
+                }
+                if let fetch = ImapFetchResponse.parse(message.line) {
+                    results.append(fetch)
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    if response.isOk {
+                        return ImapFetchResult(responses: results, qresyncEvents: events)
+                    }
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
     public func fetchAttributes(_ set: String, items: String, maxEmptyReads: Int = 10) async throws -> [ImapFetchAttributes] {
         let responses = try await fetch(set, items: items, maxEmptyReads: maxEmptyReads)
         return responses.compactMap(ImapFetchAttributes.parse)
@@ -297,8 +420,15 @@ public actor AsyncImapSession {
         } else if let response = ImapResponse.parse(message.line) {
             state.apply(response: response)
         }
+        if let idle = ImapIdleEvent.parse(message.line) {
+            state.apply(event: idle)
+        }
         if let modSeq = ImapModSeqResponse.parse(message.line) {
             state.apply(modSeq: modSeq)
+        }
+        if let fetch = ImapFetchResponse.parse(message.line),
+           let attrs = ImapFetchAttributes.parse(fetch) {
+            state.applyFetch(sequence: fetch.sequence, uid: attrs.uid, modSeq: attrs.modSeq)
         }
         if let status = ImapStatusResponse.parse(message.line), status.mailbox == mailbox {
             state.apply(status: status)
@@ -317,8 +447,15 @@ public actor AsyncImapSession {
         } else if let response = ImapResponse.parse(message.line) {
             selectedState.apply(response: response)
         }
+        if let idle = ImapIdleEvent.parse(message.line) {
+            selectedState.apply(event: idle)
+        }
         if let modSeq = ImapModSeqResponse.parse(message.line) {
             selectedState.apply(modSeq: modSeq)
+        }
+        if let fetch = ImapFetchResponse.parse(message.line),
+           let attrs = ImapFetchAttributes.parse(fetch) {
+            selectedState.applyFetch(sequence: fetch.sequence, uid: attrs.uid, modSeq: attrs.modSeq)
         }
         if let status = ImapStatusResponse.parse(message.line),
            let selectedMailbox,
