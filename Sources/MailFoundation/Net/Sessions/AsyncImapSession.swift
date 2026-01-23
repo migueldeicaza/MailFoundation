@@ -217,6 +217,28 @@ public actor AsyncImapSession {
         _ = try await client.send(.idleDone)
     }
 
+    public func readQresyncEvents(validity: UInt32 = 0, maxEmptyReads: Int = 10) async throws -> [ImapQresyncEvent] {
+        var emptyReads = 0
+        var events: [ImapQresyncEvent] = []
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let event = ImapQresyncEvent.parse(message, validity: validity) {
+                    events.append(event)
+                }
+            }
+            if !events.isEmpty {
+                return events
+            }
+        }
+        throw SessionError.timeout
+    }
+
     private func waitForGreeting() async -> ImapResponse? {
         while true {
             let messages = await client.nextMessages()

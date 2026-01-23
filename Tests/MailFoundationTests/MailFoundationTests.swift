@@ -216,6 +216,23 @@ func imapSearchSetHelpers() {
     #expect(uidSet.description == "1:3")
 }
 
+@Test("IMAP mailbox status unification")
+func imapMailboxStatusUnification() {
+    let status = ImapStatusResponse(mailbox: "INBOX", items: ["MESSAGES": 2])
+    let listStatusLine = "* LIST (\\HasNoChildren) \"/\" \"INBOX\" (UIDNEXT 5)"
+    let listStatus = ImapListStatusResponse.parse(listStatusLine)
+    let left = ImapMailboxStatus(status: status)
+    guard let listStatus else {
+        #expect(Bool(false))
+        return
+    }
+    let right = ImapMailboxStatus(listStatus: listStatus)
+    let merged = left.merging(right)
+    #expect(merged.items["MESSAGES"] == 2)
+    #expect(merged.items["UIDNEXT"] == 5)
+    #expect(merged.mailbox?.name == "INBOX")
+}
+
 @Test("IMAP bodystructure parsing")
 func imapBodyStructureParsing() {
     let singleRaw = "(\"TEXT\" \"PLAIN\" (\"CHARSET\" \"UTF-8\") NIL NIL \"7BIT\" 12 1)"
@@ -348,6 +365,35 @@ func imapFetchBodySectionResponseParsing() {
     #expect(parsedPeek?.section?.part == [1, 2])
     #expect(parsedPeek?.section?.subsection == .text)
     #expect(parsedPeek?.partial == ImapFetchPartial(start: 0, length: 3))
+}
+
+@Test("IMAP envelope cache")
+func imapEnvelopeCache() async {
+    let raw = "(\"Wed, 01 Jan 2020 00:00:00 +0000\" \"Hello\" ((\"Alice\" NIL \"alice\" \"example.com\")) NIL NIL ((\"Bob\" NIL \"bob\" \"example.com\")) NIL NIL NIL \"<msgid>\")"
+    let cache = ImapEnvelopeCache(maxEntries: 4)
+    let first = await cache.envelope(for: raw)
+    #expect(first?.subject == "Hello")
+    #expect(await cache.count() == 1)
+    let second = await cache.envelope(for: raw)
+    #expect(second?.messageId == "<msgid>")
+    #expect(await cache.count() == 1)
+}
+
+@Test("IMAP qresync event parsing")
+func imapQresyncEventParsing() {
+    let vanishedLine = "* VANISHED (EARLIER) 5:6"
+    let vanished = ImapQresyncEvent.parse(vanishedLine)
+    #expect(vanished != nil)
+
+    let fetchLine = "* 2 FETCH (UID 44 MODSEQ (7))"
+    let fetch = ImapQresyncEvent.parse(fetchLine)
+    if case let .fetch(event)? = fetch {
+        #expect(event.sequence == 2)
+        #expect(event.uid == 44)
+        #expect(event.modSeq == 7)
+    } else {
+        #expect(Bool(false))
+    }
 }
 
 @Test("IMAP fetch body section collector")

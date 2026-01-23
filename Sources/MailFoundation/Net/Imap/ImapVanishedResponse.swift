@@ -4,7 +4,7 @@
 // Parse QRESYNC VANISHED responses.
 //
 
-public struct ImapVanishedResponse: Sendable {
+public struct ImapVanishedResponse: Sendable, Equatable {
     public let earlier: Bool
     public let uids: UniqueIdSet
 
@@ -32,5 +32,11 @@ public struct ImapVanishedResponse: Sendable {
             return nil
         }
         return ImapVanishedResponse(earlier: earlier, uids: set)
+    }
+}
+
+public extension ImapVanishedResponse {
+    static func == (lhs: ImapVanishedResponse, rhs: ImapVanishedResponse) -> Bool {
+        lhs.earlier == rhs.earlier && lhs.uids.description == rhs.uids.description
     }
 }

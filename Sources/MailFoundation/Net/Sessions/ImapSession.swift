@@ -217,6 +217,28 @@ public final class ImapSession {
         try ensureWrite()
     }
 
+    public func readQresyncEvents(validity: UInt32 = 0, maxReads: Int? = nil) -> [ImapQresyncEvent] {
+        let limit = maxReads ?? self.maxReads
+        var reads = 0
+        var events: [ImapQresyncEvent] = []
+        while reads < limit {
+            let messages = client.receiveWithLiterals()
+            if messages.isEmpty {
+                reads += 1
+                continue
+            }
+            for message in messages {
+                if let event = ImapQresyncEvent.parse(message, validity: validity) {
+                    events.append(event)
+                }
+            }
+            if !events.isEmpty {
+                break
+            }
+        }
+        return events
+    }
+
     private func waitForGreeting() -> ImapResponse? {
         var reads = 0
         while reads < maxReads {
