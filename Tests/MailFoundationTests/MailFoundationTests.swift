@@ -722,6 +722,46 @@ func addressParserHelpers() throws {
     #expect(mailbox.address == "alice@example.com")
 }
 
+@Test("Mail transport envelope resolution")
+func mailTransportEnvelopeResolution() throws {
+    let message = MimeMessage()
+    message.headers[.from] = "Alice <alice@example.com>"
+    message.headers[.to] = "Bob <bob@example.com>"
+    message.headers[.cc] = "Carol <carol@example.com>"
+    message.headers[.bcc] = "Dan <dan@example.com>"
+
+    let envelope = try MailTransportEnvelopeBuilder.build(for: message)
+    #expect(envelope.sender.address == "alice@example.com")
+    #expect(envelope.recipients.map(\.address).contains("bob@example.com"))
+    #expect(envelope.recipients.map(\.address).contains("carol@example.com"))
+    #expect(envelope.recipients.map(\.address).contains("dan@example.com"))
+
+    message.headers[.resentFrom] = "Eve <eve@example.com>"
+    message.headers[.resentTo] = "Frank <frank@example.com>"
+    message.headers[.resentCc] = "Grace <grace@example.com>"
+    message.headers[.resentBcc] = "Heidi <heidi@example.com>"
+
+    let resent = try MailTransportEnvelopeBuilder.build(for: message)
+    #expect(resent.sender.address == "eve@example.com")
+    #expect(resent.recipients.map(\.address).contains("frank@example.com"))
+    #expect(resent.recipients.map(\.address).contains("grace@example.com"))
+    #expect(resent.recipients.map(\.address).contains("heidi@example.com"))
+    #expect(!resent.recipients.map(\.address).contains("bob@example.com"))
+}
+
+@Test("Mail transport missing sender/recipients")
+func mailTransportMissingSenderRecipients() throws {
+    let message = MimeMessage()
+    #expect(throws: MailTransportError.missingSender) {
+        _ = try MailTransportEnvelopeBuilder.build(for: message)
+    }
+
+    message.headers[.from] = "Alice <alice@example.com>"
+    #expect(throws: MailTransportError.missingRecipients) {
+        _ = try MailTransportEnvelopeBuilder.resolveRecipients(for: message)
+    }
+}
+
 @Test("Subject decoder")
 func subjectDecoder() {
     let decoded = SubjectDecoder.decode("=?UTF-8?B?SGVsbG8=?=")
