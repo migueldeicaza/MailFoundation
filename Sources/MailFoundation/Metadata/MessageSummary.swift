@@ -102,7 +102,7 @@ public struct MessageSummary: Sendable, Equatable {
                     items.insert(.references)
                 }
             }
-            if let previewPayload = previewPayload(from: bodyMap) {
+            if let previewPayload = previewPayload(from: bodyMap, bodyStructure: bodyStructure) {
                 let contentType = previewContentType(for: previewPayload, bodyStructure: bodyStructure, headers: headers)
                 previewText = decodePreviewText(previewPayload.data, contentType: contentType)
                 if let previewText, !previewText.isEmpty {
@@ -143,12 +143,36 @@ public struct MessageSummary: Sendable, Equatable {
         return nil
     }
 
-    private static func previewPayload(from bodyMap: ImapFetchBodyMap) -> ImapFetchBodySectionPayload? {
-        for payload in bodyMap.payloads {
-            guard let subsection = payload.section?.subsection else { continue }
-            if case .text = subsection {
-                return payload
+    private static func previewPayload(
+        from bodyMap: ImapFetchBodyMap,
+        bodyStructure: ImapBodyStructure?
+    ) -> ImapFetchBodySectionPayload? {
+        let textPayloads = bodyMap.payloads.filter { payload in
+            if let subsection = payload.section?.subsection, case .text = subsection {
+                return true
             }
+            return false
+        }
+
+        if !textPayloads.isEmpty {
+            if let bodyStructure {
+                let scored = textPayloads.map { payload -> (score: Int, payload: ImapFetchBodySectionPayload) in
+                    let contentType = bodyStructure.resolve(section: payload.section ?? ImapFetchBodySection())?.contentType?.lowercased() ?? ""
+                    let score: Int
+                    if contentType.contains("text/plain") {
+                        score = 0
+                    } else if contentType.contains("text/html") {
+                        score = 1
+                    } else {
+                        score = 2
+                    }
+                    return (score, payload)
+                }
+                if let best = scored.sorted(by: { $0.score < $1.score }).first {
+                    return best.payload
+                }
+            }
+            return textPayloads.first
         }
 
         if let full = bodyMap.payloads.first(where: { $0.section == nil })?.data {

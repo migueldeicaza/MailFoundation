@@ -1086,6 +1086,25 @@ func messageSummaryHtmlPreviewDecoding() {
     #expect(summary?.previewText == "Hello world")
 }
 
+@Test("Message summary preview prefers text/plain")
+func messageSummaryPreviewPrefersPlain() {
+    let bodyStructure = "((\"TEXT\" \"PLAIN\" NIL NIL NIL \"7BIT\" 1 1)(\"TEXT\" \"HTML\" NIL NIL NIL \"7BIT\" 1 1) \"ALTERNATIVE\")"
+    let line = "* 1 FETCH (UID 12 BODYSTRUCTURE \(bodyStructure))"
+    let fetch = ImapFetchResponse.parse(line)
+
+    let plainSection = ImapFetchBodySection(part: [1], subsection: .text)
+    let htmlSection = ImapFetchBodySection(part: [2], subsection: .text)
+    let plainPayload = ImapFetchBodySectionPayload(section: plainSection, peek: true, partial: nil, data: Array("Plain preview".utf8))
+    let htmlPayload = ImapFetchBodySectionPayload(section: htmlSection, peek: true, partial: nil, data: Array("<b>Html</b> preview".utf8))
+
+    let plainKey = ImapFetchBodyKey(section: plainSection.serialize(), peek: true, partial: nil)
+    let htmlKey = ImapFetchBodyKey(section: htmlSection.serialize(), peek: true, partial: nil)
+    let bodyMap = ImapFetchBodyMap(sequence: 1, payloads: [htmlPayload, plainPayload], bodies: [plainKey: plainPayload.data, htmlKey: htmlPayload.data])
+
+    let summary = fetch.flatMap { MessageSummary.build(fetch: $0, bodyMap: bodyMap) }
+    #expect(summary?.previewText == "Plain preview")
+}
+
 @Test("LineBuffer incremental")
 func lineBufferIncremental() {
     var buffer = LineBuffer()

@@ -10,6 +10,8 @@ public actor AsyncImapMailStore: AsyncMailStore {
 
     private let session: AsyncImapSession
     public let protocolLogger: ProtocolLoggerType
+    private var selectedFolderStorage: AsyncImapFolder?
+    private var selectedAccessStorage: FolderAccess?
 
     public init(transport: AsyncTransport, protocolLogger: ProtocolLoggerType = NullProtocolLogger()) {
         self.protocolLogger = protocolLogger
@@ -23,6 +25,8 @@ public actor AsyncImapMailStore: AsyncMailStore {
 
     public func disconnect() async {
         await session.disconnect()
+        selectedFolderStorage = nil
+        selectedAccessStorage = nil
     }
 
     public func authenticate(user: String, password: String) async throws -> ImapResponse? {
@@ -47,16 +51,48 @@ public actor AsyncImapMailStore: AsyncMailStore {
         }
     }
 
+    public var selectedFolder: AsyncImapFolder? {
+        get async {
+            selectedFolderStorage
+        }
+    }
+
+    public var selectedAccess: FolderAccess? {
+        get async {
+            selectedAccessStorage
+        }
+    }
+
     public func getFolder(_ path: String) async throws -> AsyncImapFolder {
         let mailbox = ImapMailbox(kind: .list, name: path, delimiter: nil, attributes: [])
-        return AsyncImapFolder(session: session, mailbox: mailbox)
+        return AsyncImapFolder(session: session, mailbox: mailbox, store: self)
     }
 
     public func getFolders(reference: String, pattern: String, subscribedOnly: Bool = false) async throws -> [AsyncImapFolder] {
         let mailboxes = subscribedOnly
             ? try await session.lsub(reference: reference, mailbox: pattern)
             : try await session.list(reference: reference, mailbox: pattern)
-        return mailboxes.map { AsyncImapFolder(session: session, mailbox: $0) }
+        return mailboxes.map { AsyncImapFolder(session: session, mailbox: $0, store: self) }
+    }
+
+    public func openFolder(_ path: String, access: FolderAccess) async throws -> AsyncImapFolder {
+        let folder = try await getFolder(path)
+        _ = try await folder.open(access)
+        return folder
+    }
+
+    public func openFolder(_ folder: AsyncImapFolder, access: FolderAccess) async throws {
+        _ = try await folder.open(access)
+    }
+
+    public func closeFolder() async throws {
+        guard let folder = selectedFolderStorage else { return }
+        _ = try await folder.close()
+    }
+
+    internal func updateSelectedFolder(_ folder: AsyncImapFolder?, access: FolderAccess?) {
+        selectedFolderStorage = folder
+        selectedAccessStorage = access
     }
 }
 
@@ -67,11 +103,13 @@ public actor AsyncImapFolder: AsyncMailFolder {
     public nonisolated let name: String
 
     private let session: AsyncImapSession
+    private weak var store: AsyncImapMailStore?
     private var access: FolderAccess?
 
-    public init(session: AsyncImapSession, mailbox: ImapMailbox) {
+    public init(session: AsyncImapSession, mailbox: ImapMailbox, store: AsyncImapMailStore?) {
         self.session = session
         self.mailbox = mailbox
+        self.store = store
         self.fullName = mailbox.decodedName
         self.name = MailFolderBase.computeName(mailbox.decodedName, delimiter: mailbox.delimiter)
     }
@@ -89,6 +127,9 @@ public actor AsyncImapFolder: AsyncMailFolder {
             response = try await session.select(mailbox: mailbox.name)
         }
         self.access = access
+        if let store {
+            await store.updateSelectedFolder(self, access: access)
+        }
         return response
     }
 
@@ -103,6 +144,9 @@ public actor AsyncImapFolder: AsyncMailFolder {
     public func close() async throws -> ImapResponse? {
         let response = try await session.close()
         access = nil
+        if let store {
+            await store.updateSelectedFolder(nil, access: nil)
+        }
         return response
     }
 

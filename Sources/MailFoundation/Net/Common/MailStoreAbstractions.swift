@@ -17,6 +17,9 @@ public protocol AsyncMailFolder {
 public protocol MailStore: MailService {
     associatedtype FolderType: MailFolder
 
+    var selectedFolder: FolderType? { get }
+    var selectedAccess: FolderAccess? { get }
+
     func getFolder(_ path: String) throws -> FolderType
     func getFolders(reference: String, pattern: String, subscribedOnly: Bool) throws -> [FolderType]
 }
@@ -24,6 +27,9 @@ public protocol MailStore: MailService {
 @available(macOS 10.15, iOS 13.0, *)
 public protocol AsyncMailStore: AsyncMailService {
     associatedtype FolderType: AsyncMailFolder
+
+    var selectedFolder: FolderType? { get async }
+    var selectedAccess: FolderAccess? { get async }
 
     func getFolder(_ path: String) async throws -> FolderType
     func getFolders(reference: String, pattern: String, subscribedOnly: Bool) async throws -> [FolderType]
