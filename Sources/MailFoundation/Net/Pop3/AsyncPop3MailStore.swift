@@ -55,6 +55,8 @@ public actor AsyncPop3MailStore: AsyncMailStore {
 
     public func authenticate(user: String, password: String) async throws -> (user: Pop3Response?, pass: Pop3Response?) {
         let responses = try await session.authenticate(user: user, password: password)
+        await inbox.attachStore(self)
+        _ = try await inbox.open(.readOnly)
         return responses
     }
 
@@ -74,6 +76,7 @@ public actor AsyncPop3MailStore: AsyncMailStore {
     }
 
     public func openInbox(access: FolderAccess = .readOnly) async throws -> AsyncPop3Folder {
+        await inbox.attachStore(self)
         _ = try await inbox.open(access)
         return inbox
     }

@@ -36,10 +36,12 @@ public final class Pop3MailStore: MailServiceBase<Pop3Response>, MailStore {
     public func authenticate(user: String, password: String) throws -> (user: Pop3Response, pass: Pop3Response) {
         let responses = try session.authenticate(user: user, password: password)
         updateState(.authenticated)
+        _ = try inbox.open(.readOnly)
         return responses
     }
 
     public override func disconnect() {
+        inbox.close()
         session.disconnect()
         updateSelectedFolder(nil, access: nil)
         super.disconnect()

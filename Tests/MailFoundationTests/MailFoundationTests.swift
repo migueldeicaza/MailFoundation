@@ -1105,6 +1105,47 @@ func messageSummaryPreviewPrefersPlain() {
     #expect(summary?.previewText == "Plain preview")
 }
 
+@Test("POP3 store selected folder after authenticate")
+func pop3StoreSelectedFolderAfterAuthenticate() throws {
+    let transport = TestTransport(incoming: [
+        Array("+OK Ready\r\n".utf8),
+        Array("+OK USER\r\n".utf8),
+        Array("+OK PASS\r\n".utf8)
+    ])
+    let store = Pop3MailStore(transport: transport)
+    _ = try store.connect()
+    _ = try store.authenticate(user: "user", password: "pass")
+    #expect(store.selectedFolder === store.inbox)
+    #expect(store.selectedAccess == .readOnly)
+    #expect(store.inbox.isOpen == true)
+
+    store.disconnect()
+    #expect(store.selectedFolder == nil)
+    #expect(store.selectedAccess == nil)
+    #expect(store.inbox.isOpen == false)
+}
+
+@Test("IMAP store selected folder open/close")
+func imapStoreSelectedFolderOpenClose() throws {
+    let transport = TestTransport(incoming: [
+        Array("* OK Ready\r\n".utf8),
+        Array("* 2 EXISTS\r\n".utf8),
+        Array("A0001 OK EXAMINE\r\n".utf8),
+        Array("A0002 OK CLOSE\r\n".utf8)
+    ])
+    let store = ImapMailStore(transport: transport)
+    _ = try store.connect()
+    let folder = try store.openFolder("INBOX", access: .readOnly)
+    #expect(store.selectedFolder === folder)
+    #expect(store.selectedAccess == .readOnly)
+    #expect(folder.isOpen == true)
+
+    try store.closeFolder()
+    #expect(store.selectedFolder == nil)
+    #expect(store.selectedAccess == nil)
+    #expect(folder.isOpen == false)
+}
+
 @Test("LineBuffer incremental")
 func lineBufferIncremental() {
     var buffer = LineBuffer()
