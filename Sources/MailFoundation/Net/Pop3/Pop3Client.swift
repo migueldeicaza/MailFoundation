@@ -74,6 +74,11 @@ public final class Pop3Client {
     }
 
     public func handleAuthenticationResponse(_ response: Pop3Response) {
+        if response.isContinuation {
+            detector.isAuthenticating = true
+            state = .authenticating
+            return
+        }
         detector.isAuthenticating = false
         switch authStep {
         case .none:
@@ -122,6 +127,21 @@ public final class Pop3Client {
     @discardableResult
     public func send(_ command: Pop3Command) -> [UInt8] {
         let bytes = Array(command.serialized.utf8)
+        protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
+        let written = transport?.write(bytes) ?? 0
+        lastWriteSucceeded = written == bytes.count
+        return bytes
+    }
+
+    @discardableResult
+    public func sendLine(_ line: String) -> [UInt8] {
+        let serialized: String
+        if line.hasSuffix("\r\n") {
+            serialized = line
+        } else {
+            serialized = "\(line)\r\n"
+        }
+        let bytes = Array(serialized.utf8)
         protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
         let written = transport?.write(bytes) ?? 0
         lastWriteSucceeded = written == bytes.count

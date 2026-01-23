@@ -96,6 +96,33 @@ public final class Pop3Session {
         return response
     }
 
+    public func auth(
+        mechanism: String,
+        initialResponse: String? = nil,
+        responder: (String) throws -> String
+    ) throws -> Pop3Response {
+        _ = client.send(.auth(mechanism, initialResponse: initialResponse))
+        try ensureWrite()
+        guard var response = client.waitForResponse(maxReads: maxReads) else {
+            throw SessionError.timeout
+        }
+
+        while response.isContinuation {
+            let reply = try responder(response.message)
+            _ = client.sendLine(reply)
+            try ensureWrite()
+            guard let next = client.waitForResponse(maxReads: maxReads) else {
+                throw SessionError.timeout
+            }
+            response = next
+        }
+
+        guard response.isSuccess else {
+            throw SessionError.pop3Error(message: response.message)
+        }
+        return response
+    }
+
     public func noop() throws -> Pop3Response {
         try ensureAuthenticated()
         _ = client.send(.noop)

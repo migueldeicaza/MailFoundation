@@ -48,6 +48,31 @@ public actor AsyncPop3Session {
         return await client.waitForResponse()
     }
 
+    public func auth(
+        mechanism: String,
+        initialResponse: String? = nil,
+        responder: @Sendable (String) async throws -> String
+    ) async throws -> Pop3Response? {
+        _ = try await client.send(.auth(mechanism, initialResponse: initialResponse))
+        guard var response = await client.waitForResponse() else {
+            throw SessionError.timeout
+        }
+
+        while response.isContinuation {
+            let reply = try await responder(response.message)
+            _ = try await client.sendLine(reply)
+            guard let next = await client.waitForResponse() else {
+                throw SessionError.timeout
+            }
+            response = next
+        }
+
+        guard response.isSuccess else {
+            throw SessionError.pop3Error(message: response.message)
+        }
+        return response
+    }
+
     public func noop() async throws -> Pop3Response? {
         try await ensureAuthenticated()
         _ = try await client.send(.noop)

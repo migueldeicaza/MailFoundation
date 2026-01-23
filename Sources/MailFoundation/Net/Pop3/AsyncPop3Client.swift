@@ -67,6 +67,10 @@ public actor AsyncPop3Client {
 
     public func handleAuthenticationResponse(_ response: Pop3Response) {
         guard state == .authenticating else { return }
+        if response.isContinuation {
+            state = .authenticating
+            return
+        }
         switch authStep {
         case .none:
             state = response.isSuccess ? .authenticated : .connected
@@ -110,6 +114,20 @@ public actor AsyncPop3Client {
     @discardableResult
     public func send(_ command: Pop3Command) async throws -> [UInt8] {
         let bytes = Array(command.serialized.utf8)
+        protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
+        try await transport.send(bytes)
+        return bytes
+    }
+
+    @discardableResult
+    public func sendLine(_ line: String) async throws -> [UInt8] {
+        let serialized: String
+        if line.hasSuffix("\r\n") {
+            serialized = line
+        } else {
+            serialized = "\(line)\r\n"
+        }
+        let bytes = Array(serialized.utf8)
         protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
         try await transport.send(bytes)
         return bytes

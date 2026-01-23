@@ -1806,6 +1806,33 @@ func asyncPop3SessionExtraCommands() async throws {
 }
 
 @available(macOS 10.15, iOS 13.0, *)
+@Test("Async POP3 session AUTH continuation")
+func asyncPop3SessionAuthContinuation() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncPop3Session(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("+OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let authTask = Task {
+        try await session.auth(mechanism: "PLAIN") { challenge in
+            #expect(challenge == "VHJ5")
+            return "dXNlcg=="
+        }
+    }
+    await transport.yieldIncoming(Array("+ VHJ5\r\n".utf8))
+    await transport.yieldIncoming(Array("+OK\r\n".utf8))
+    let response = try await authTask.value
+    #expect(response?.isSuccess == true)
+
+    let sent = await transport.sentSnapshot()
+    let payloads = sent.map { String(decoding: $0, as: UTF8.self) }
+    #expect(payloads.contains("AUTH PLAIN\r\n"))
+    #expect(payloads.contains("dXNlcg==\r\n"))
+}
+
+@available(macOS 10.15, iOS 13.0, *)
 @Test("Async POP3 session STARTTLS")
 func asyncPop3SessionStartTls() async throws {
     let transport = StartTlsAsyncTransport()
@@ -2473,6 +2500,25 @@ func syncPop3SessionExtraCommands() throws {
     #expect(topLines.first == "header1")
     _ = try session.apop(user: "user", digest: "digest")
     _ = try session.auth(mechanism: "PLAIN")
+}
+
+@Test("Sync POP3 session AUTH continuation")
+func syncPop3SessionAuthContinuation() throws {
+    let transport = TestTransport(incoming: [
+        Array("+OK Ready\r\n".utf8),
+        Array("+ VHJ5\r\n".utf8),
+        Array("+OK\r\n".utf8)
+    ])
+    let session = Pop3Session(transport: transport, maxReads: 3)
+    _ = try session.connect()
+    let response = try session.auth(mechanism: "PLAIN") { challenge in
+        #expect(challenge == "VHJ5")
+        return "dXNlcg=="
+    }
+    #expect(response.isSuccess == true)
+    let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent.contains("AUTH PLAIN\r\n"))
+    #expect(sent.contains("dXNlcg==\r\n"))
 }
 
 @Test("Sync POP3 session requires authentication for STAT")
