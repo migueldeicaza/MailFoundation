@@ -169,6 +169,50 @@ public actor AsyncImapSession {
         throw SessionError.timeout
     }
 
+    public func startIdle(maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        let command = try await client.send(.idle)
+        var emptyReads = 0
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let response = message.response, case .continuation = response.kind {
+                    return response
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
+    public func readIdleEvents(maxEmptyReads: Int = 10) async throws -> [ImapIdleEvent] {
+        var emptyReads = 0
+        var events: [ImapIdleEvent] = []
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                if let event = ImapIdleEvent.parse(message.line) {
+                    events.append(event)
+                }
+            }
+            if !events.isEmpty {
+                return events
+            }
+        }
+        throw SessionError.timeout
+    }
+
     private func waitForGreeting() async -> ImapResponse? {
         while true {
             let messages = await client.nextMessages()

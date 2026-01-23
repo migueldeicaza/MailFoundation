@@ -213,6 +213,23 @@ public final class ImapClient {
         return nil
     }
 
+    public func waitForContinuation(maxReads: Int = 10) -> ImapResponse? {
+        var reads = 0
+        while reads < maxReads {
+            let messages = receiveWithLiterals()
+            if messages.isEmpty {
+                reads += 1
+                continue
+            }
+            for message in messages {
+                if let response = message.response, case .continuation = response.kind {
+                    return response
+                }
+            }
+        }
+        return nil
+    }
+
     public func execute(_ kind: ImapCommandKind, maxReads: Int = 10) -> ImapResponse? {
         let command = send(kind)
         return waitForTagged(command.tag, maxReads: maxReads)

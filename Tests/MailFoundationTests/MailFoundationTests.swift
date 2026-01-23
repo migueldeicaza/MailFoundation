@@ -171,6 +171,16 @@ func imapMailboxListParsing() {
     #expect(special?.specialUse == .all)
 }
 
+@Test("IMAP list-status parsing")
+func imapListStatusParsing() {
+    let line = "* LIST (\\HasNoChildren) \"/\" \"INBOX\" (MESSAGES 2 UIDNEXT 5)"
+    let response = ImapListStatusResponse.parse(line)
+    #expect(response?.mailbox.name == "INBOX")
+    #expect(response?.mailbox.attributes.contains(.hasNoChildren) == true)
+    #expect(response?.statusItems["MESSAGES"] == 2)
+    #expect(response?.statusItems["UIDNEXT"] == 5)
+}
+
 @Test("IMAP bodystructure parsing")
 func imapBodyStructureParsing() {
     let singleRaw = "(\"TEXT\" \"PLAIN\" (\"CHARSET\" \"UTF-8\") NIL NIL \"7BIT\" 12 1)"
@@ -287,6 +297,38 @@ func imapFetchBodySectionResponseParsing() {
     #expect(parsedPeek?.section?.part == [1, 2])
     #expect(parsedPeek?.section?.subsection == .text)
     #expect(parsedPeek?.partial == ImapFetchPartial(start: 0, length: 3))
+}
+
+@Test("IMAP fetch body section collector")
+func imapFetchBodySectionCollector() async {
+    let collector = ImapFetchBodySectionCollector()
+    let line1 = "* 1 FETCH (BODY[HEADER] {5}"
+    let msg1 = ImapLiteralMessage(line: line1, response: ImapResponse.parse(line1), literal: Array("Hello".utf8))
+    let line2 = "* 1 FETCH (BODY[TEXT] {3}"
+    let msg2 = ImapLiteralMessage(line: line2, response: ImapResponse.parse(line2), literal: Array("abc".utf8))
+    _ = await collector.ingest(msg1)
+    _ = await collector.ingest(msg2)
+    let results = await collector.ingest([])
+    #expect(results.count == 1)
+    #expect(results.first?.sections.count == 2)
+}
+
+@Test("IMAP idle event parsing")
+func imapIdleEventParsing() {
+    let exists = ImapIdleEvent.parse("* 3 EXISTS")
+    #expect(exists == .exists(3))
+
+    let expunge = ImapIdleEvent.parse("* 4 EXPUNGE")
+    #expect(expunge == .expunge(4))
+
+    let recent = ImapIdleEvent.parse("* 1 RECENT")
+    #expect(recent == .recent(1))
+
+    let flags = ImapIdleEvent.parse("* FLAGS (\\Seen \\Answered)")
+    #expect(flags == .flags(["\\Seen", "\\Answered"]))
+
+    let ok = ImapIdleEvent.parse("* OK [ALERT] Foo")
+    #expect(ok != nil)
 }
 
 @Test("SearchQuery serialization")

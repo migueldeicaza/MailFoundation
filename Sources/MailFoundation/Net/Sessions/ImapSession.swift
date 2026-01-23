@@ -181,6 +181,37 @@ public final class ImapSession {
         return response
     }
 
+    public func startIdle() throws -> ImapResponse {
+        _ = client.send(.idle)
+        try ensureWrite()
+        guard let response = client.waitForContinuation(maxReads: maxReads) else {
+            throw SessionError.timeout
+        }
+        return response
+    }
+
+    public func readIdleEvents(maxReads: Int? = nil) -> [ImapIdleEvent] {
+        let limit = maxReads ?? self.maxReads
+        var reads = 0
+        var events: [ImapIdleEvent] = []
+        while reads < limit {
+            let messages = client.receiveWithLiterals()
+            if messages.isEmpty {
+                reads += 1
+                continue
+            }
+            for message in messages {
+                if let event = ImapIdleEvent.parse(message.line) {
+                    events.append(event)
+                }
+            }
+            if !events.isEmpty {
+                break
+            }
+        }
+        return events
+    }
+
     private func waitForGreeting() -> ImapResponse? {
         var reads = 0
         while reads < maxReads {
