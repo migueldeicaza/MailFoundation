@@ -194,6 +194,53 @@ public actor AsyncSmtpSession {
         throw SessionError.timeout
     }
 
+    public func sendMailPipelined(
+        from: String,
+        to recipients: [String],
+        data: [UInt8],
+        mailParameters: SmtpMailFromParameters? = nil,
+        rcptParameters: SmtpRcptToParameters? = nil
+    ) async throws -> SmtpResponse {
+        if let mailParameters {
+            _ = try await client.send(.mailFromParameters(from, mailParameters))
+        } else {
+            _ = try await client.send(.mailFrom(from))
+        }
+
+        for recipient in recipients {
+            if let rcptParameters {
+                _ = try await client.send(.rcptToParameters(recipient, rcptParameters))
+            } else {
+                _ = try await client.send(.rcptTo(recipient))
+            }
+        }
+
+        guard let mailResponse = await client.waitForResponse() else {
+            throw SessionError.timeout
+        }
+        guard mailResponse.isSuccess else {
+            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+        }
+
+        for _ in recipients {
+            guard let rcptResponse = await client.waitForResponse() else {
+                throw SessionError.timeout
+            }
+            guard rcptResponse.isSuccess else {
+                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+            }
+        }
+
+        if let dataResponse = try await client.sendData(data) {
+            if dataResponse.isSuccess {
+                return dataResponse
+            }
+            throw SessionError.smtpError(code: dataResponse.code, message: dataResponse.lines.joined(separator: " "))
+        }
+
+        throw SessionError.timeout
+    }
+
     public func sendBdat(_ data: [UInt8], last: Bool) async throws -> SmtpResponse {
         _ = try await client.send(.bdat(data.count, last: last))
         _ = try await client.sendRaw(data)

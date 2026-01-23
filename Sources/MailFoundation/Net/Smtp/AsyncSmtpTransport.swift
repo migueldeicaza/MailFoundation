@@ -111,6 +111,42 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         )
     }
 
+    public func sendChunked(
+        _ message: MimeMessage,
+        chunkSize: Int = 4096,
+        options: FormatOptions = .default,
+        progress: TransferProgress? = nil,
+        mailParameters: SmtpMailFromParameters? = nil,
+        rcptParameters: SmtpRcptToParameters? = nil
+    ) async throws -> SmtpResponse {
+        let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
+        return try await session.sendMailChunked(
+            from: envelope.sender.address,
+            to: envelope.recipients.map { $0.address },
+            data: envelope.data,
+            chunkSize: chunkSize,
+            mailParameters: mailParameters,
+            rcptParameters: rcptParameters
+        )
+    }
+
+    public func sendPipelined(
+        _ message: MimeMessage,
+        options: FormatOptions = .default,
+        progress: TransferProgress? = nil,
+        mailParameters: SmtpMailFromParameters? = nil,
+        rcptParameters: SmtpRcptToParameters? = nil
+    ) async throws -> SmtpResponse {
+        let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
+        return try await session.sendMailPipelined(
+            from: envelope.sender.address,
+            to: envelope.recipients.map { $0.address },
+            data: envelope.data,
+            mailParameters: mailParameters,
+            rcptParameters: rcptParameters
+        )
+    }
+
     public func sendMessage(from: String, to recipients: [String], data: [UInt8]) async throws {
         _ = try await session.sendMail(from: from, to: recipients, data: data)
     }

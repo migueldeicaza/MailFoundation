@@ -293,6 +293,55 @@ public final class SmtpSession {
         throw SessionError.timeout
     }
 
+    public func sendMailPipelined(
+        from: String,
+        to recipients: [String],
+        data: [UInt8],
+        mailParameters: SmtpMailFromParameters? = nil,
+        rcptParameters: SmtpRcptToParameters? = nil
+    ) throws -> SmtpResponse {
+        if let mailParameters {
+            _ = client.send(.mailFromParameters(from, mailParameters))
+        } else {
+            _ = client.send(.mailFrom(from))
+        }
+        try ensureWrite()
+
+        for recipient in recipients {
+            if let rcptParameters {
+                _ = client.send(.rcptToParameters(recipient, rcptParameters))
+            } else {
+                _ = client.send(.rcptTo(recipient))
+            }
+            try ensureWrite()
+        }
+
+        guard let mailResponse = client.waitForResponse(maxReads: maxReads) else {
+            throw SessionError.timeout
+        }
+        guard mailResponse.isSuccess else {
+            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+        }
+
+        for _ in recipients {
+            guard let rcptResponse = client.waitForResponse(maxReads: maxReads) else {
+                throw SessionError.timeout
+            }
+            guard rcptResponse.isSuccess else {
+                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+            }
+        }
+
+        if let dataResponse = client.sendData(data, maxReads: maxReads) {
+            try ensureWrite()
+            if dataResponse.isSuccess {
+                return dataResponse
+            }
+            throw SessionError.smtpError(code: dataResponse.code, message: dataResponse.lines.joined(separator: " "))
+        }
+        throw SessionError.timeout
+    }
+
     public func sendBdat(_ data: [UInt8], last: Bool) throws -> SmtpResponse {
         _ = client.send(.bdat(data.count, last: last))
         try ensureWrite()

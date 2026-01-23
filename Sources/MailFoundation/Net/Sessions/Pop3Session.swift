@@ -212,6 +212,13 @@ public final class Pop3Session {
         throw SessionError.timeout
     }
 
+    public func retrRaw(_ index: Int) throws -> [UInt8] {
+        try ensureAuthenticated()
+        _ = client.send(.retr(index))
+        try ensureWrite()
+        return try waitForMultilineData()
+    }
+
     public func top(_ index: Int, lines: Int) throws -> [String] {
         try ensureAuthenticated()
         client.expectMultilineResponse()
@@ -228,6 +235,13 @@ public final class Pop3Session {
             throw SessionError.pop3Error(message: response.message)
         }
         throw SessionError.timeout
+    }
+
+    public func topRaw(_ index: Int, lines: Int) throws -> [UInt8] {
+        try ensureAuthenticated()
+        _ = client.send(.top(index, lines: lines))
+        try ensureWrite()
+        return try waitForMultilineData()
     }
 
     public func list() throws -> [Pop3ListItem] {
@@ -326,6 +340,33 @@ public final class Pop3Session {
                 return event
             }
             reads += 1
+        }
+        throw SessionError.timeout
+    }
+
+    private func waitForMultilineData() throws -> [UInt8] {
+        var decoder = Pop3MultilineByteDecoder()
+        decoder.expectMultiline()
+        var reads = 0
+        while reads < maxReads {
+            let bytes = transport.readAvailable(maxLength: 4096)
+            if bytes.isEmpty {
+                reads += 1
+                continue
+            }
+            client.protocolLogger.logServer(bytes, offset: 0, count: bytes.count)
+            let events = decoder.append(bytes)
+            for event in events {
+                switch event {
+                case let .single(response):
+                    throw SessionError.pop3Error(message: response.message)
+                case let .multiline(response, data):
+                    guard response.isSuccess else {
+                        throw SessionError.pop3Error(message: response.message)
+                    }
+                    return data
+                }
+            }
         }
         throw SessionError.timeout
     }

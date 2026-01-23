@@ -117,6 +117,46 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
         return response
     }
 
+    public func sendChunked(
+        _ message: MimeMessage,
+        chunkSize: Int = 4096,
+        options: FormatOptions = .default,
+        progress: TransferProgress? = nil,
+        mailParameters: SmtpMailFromParameters? = nil,
+        rcptParameters: SmtpRcptToParameters? = nil
+    ) throws -> SmtpResponse {
+        let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
+        let response = try session.sendMailChunked(
+            from: envelope.sender.address,
+            to: envelope.recipients.map { $0.address },
+            data: envelope.data,
+            chunkSize: chunkSize,
+            mailParameters: mailParameters,
+            rcptParameters: rcptParameters
+        )
+        notifyMessageSent(response: response.lines.joined(separator: " "))
+        return response
+    }
+
+    public func sendPipelined(
+        _ message: MimeMessage,
+        options: FormatOptions = .default,
+        progress: TransferProgress? = nil,
+        mailParameters: SmtpMailFromParameters? = nil,
+        rcptParameters: SmtpRcptToParameters? = nil
+    ) throws -> SmtpResponse {
+        let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
+        let response = try session.sendMailPipelined(
+            from: envelope.sender.address,
+            to: envelope.recipients.map { $0.address },
+            data: envelope.data,
+            mailParameters: mailParameters,
+            rcptParameters: rcptParameters
+        )
+        notifyMessageSent(response: response.lines.joined(separator: " "))
+        return response
+    }
+
     public func sendMessage(from: String, to recipients: [String], data: [UInt8]) throws {
         _ = try session.sendMail(from: from, to: recipients, data: data)
     }

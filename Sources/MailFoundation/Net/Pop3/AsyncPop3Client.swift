@@ -169,6 +169,14 @@ public actor AsyncPop3Client {
         return multilineDecoder.append(chunk)
     }
 
+    public func nextChunk() async -> [UInt8] {
+        guard let chunk = await queue.dequeue() else {
+            return []
+        }
+        protocolLogger.logServer(chunk, offset: 0, count: chunk.count)
+        return chunk
+    }
+
     public func authenticate(user: String, password: String) async throws -> (user: Pop3Response?, pass: Pop3Response?) {
         beginAuthentication()
         authStep = .user
