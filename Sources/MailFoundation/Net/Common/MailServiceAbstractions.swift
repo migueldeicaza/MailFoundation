@@ -39,7 +39,12 @@ public protocol MessageTransport: AnyObject {
     func sendMessage(from: String, to recipients: [String], data: [UInt8]) throws
 }
 
+public protocol MailTransport: MailService, MessageTransport {}
+
 @available(macOS 10.15, iOS 13.0, *)
 public protocol AsyncMessageTransport: AnyObject {
     func sendMessage(from: String, to recipients: [String], data: [UInt8]) async throws
 }
+
+@available(macOS 10.15, iOS 13.0, *)
+public protocol AsyncMailTransport: AsyncMailService, AsyncMessageTransport {}

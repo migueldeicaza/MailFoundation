@@ -65,6 +65,7 @@ public actor AsyncImapSession {
     }
 
     public func enable(_ capabilities: [String], maxEmptyReads: Int = 10) async throws -> [String] {
+        try await ensureAuthenticated()
         let command = try await client.send(.enable(capabilities))
         var enabled: [String] = []
         var emptyReads = 0
@@ -91,6 +92,7 @@ public actor AsyncImapSession {
     }
 
     public func select(mailbox: String) async throws -> ImapResponse? {
+        try await ensureAuthenticated()
         let command = try await client.send(.select(mailbox))
         var emptyReads = 0
         var nextState = ImapSelectedState()
@@ -120,6 +122,7 @@ public actor AsyncImapSession {
     }
 
     public func examine(mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapResponse? {
+        try await ensureAuthenticated()
         let command = try await client.send(.examine(mailbox))
         var emptyReads = 0
         var nextState = ImapSelectedState()
@@ -147,6 +150,7 @@ public actor AsyncImapSession {
     }
 
     public func close() async throws -> ImapResponse? {
+        try await ensureSelected()
         let response = try await client.close()
         if response?.isOk == true {
             selectedMailbox = nil
@@ -156,6 +160,7 @@ public actor AsyncImapSession {
     }
 
     public func check(maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await ensureSelected()
         let command = try await client.send(.check)
         var emptyReads = 0
         while emptyReads < maxEmptyReads {
@@ -178,6 +183,7 @@ public actor AsyncImapSession {
     }
 
     public func expunge(maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await ensureSelected()
         let command = try await client.send(.expunge)
         var emptyReads = 0
         while emptyReads < maxEmptyReads {
@@ -201,6 +207,7 @@ public actor AsyncImapSession {
     }
 
     public func create(mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await ensureAuthenticated()
         let command = try await client.send(.create(mailbox))
         var emptyReads = 0
         while emptyReads < maxEmptyReads {
@@ -223,6 +230,7 @@ public actor AsyncImapSession {
     }
 
     public func delete(mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await ensureAuthenticated()
         let command = try await client.send(.delete(mailbox))
         var emptyReads = 0
         while emptyReads < maxEmptyReads {
@@ -245,6 +253,7 @@ public actor AsyncImapSession {
     }
 
     public func rename(mailbox: String, newName: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await ensureAuthenticated()
         let command = try await client.send(.rename(mailbox, newName))
         var emptyReads = 0
         while emptyReads < maxEmptyReads {
@@ -267,6 +276,7 @@ public actor AsyncImapSession {
     }
 
     public func subscribe(mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await ensureAuthenticated()
         let command = try await client.send(.subscribe(mailbox))
         var emptyReads = 0
         while emptyReads < maxEmptyReads {
@@ -289,6 +299,7 @@ public actor AsyncImapSession {
     }
 
     public func unsubscribe(mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await ensureAuthenticated()
         let command = try await client.send(.unsubscribe(mailbox))
         var emptyReads = 0
         while emptyReads < maxEmptyReads {
@@ -320,6 +331,7 @@ public actor AsyncImapSession {
         mailbox: String,
         maxEmptyReads: Int = 10
     ) async throws -> [ImapMailboxListResponse] {
+        try await ensureAuthenticated()
         let command = try await client.send(.list(reference, mailbox))
         var responses: [ImapMailboxListResponse] = []
         var emptyReads = 0
@@ -356,6 +368,7 @@ public actor AsyncImapSession {
         mailbox: String,
         maxEmptyReads: Int = 10
     ) async throws -> [ImapMailboxListResponse] {
+        try await ensureAuthenticated()
         let command = try await client.send(.lsub(reference, mailbox))
         var responses: [ImapMailboxListResponse] = []
         var emptyReads = 0
@@ -387,6 +400,7 @@ public actor AsyncImapSession {
         mailbox: String,
         maxEmptyReads: Int = 10
     ) async throws -> [ImapListStatusResponse] {
+        try await ensureAuthenticated()
         let command = try await client.send(.list(reference, mailbox))
         var responses: [ImapListStatusResponse] = []
         var emptyReads = 0
@@ -418,6 +432,7 @@ public actor AsyncImapSession {
     }
 
     public func search(_ criteria: String, maxEmptyReads: Int = 10) async throws -> ImapSearchResponse {
+        try await ensureSelected()
         let command = try await client.send(.search(criteria))
         var ids: [UInt32] = []
         var emptyReads = 0
@@ -450,6 +465,7 @@ public actor AsyncImapSession {
     }
 
     public func uidSearch(_ criteria: String, maxEmptyReads: Int = 10) async throws -> ImapSearchResponse {
+        try await ensureSelected()
         let command = try await client.send(.uidSearch(criteria))
         var ids: [UInt32] = []
         var emptyReads = 0
@@ -482,6 +498,7 @@ public actor AsyncImapSession {
     }
 
     public func status(mailbox: String, items: [String], maxEmptyReads: Int = 10) async throws -> ImapStatusResponse {
+        try await ensureAuthenticated()
         let command = try await client.send(.status(mailbox, items: items))
         var result: ImapStatusResponse?
         var emptyReads = 0
@@ -514,6 +531,7 @@ public actor AsyncImapSession {
     }
 
     public func fetch(_ set: String, items: String, maxEmptyReads: Int = 10) async throws -> [ImapFetchResponse] {
+        try await ensureSelected()
         let result = try await fetchWithQresync(set, items: items, maxEmptyReads: maxEmptyReads)
         return result.responses
     }
@@ -528,6 +546,7 @@ public actor AsyncImapSession {
         previewLength: Int = 512,
         maxEmptyReads: Int = 10
     ) async throws -> [MessageSummary] {
+        try await ensureSelected()
         let needsBodies = request.items.contains(.headers) || request.items.contains(.references) || request.items.contains(.previewText)
         let itemList = request.items.contains(.previewText)
             ? request.imapItemList(previewFallback: ImapFetchPartial(start: 0, length: previewLength))
@@ -540,6 +559,7 @@ public actor AsyncImapSession {
         items: String,
         maxEmptyReads: Int = 10
     ) async throws -> ImapFetchResult {
+        try await ensureSelected()
         let command = try await client.send(.fetch(set, items))
         var results: [ImapFetchResponse] = []
         var events: [ImapQresyncEvent] = []
@@ -577,6 +597,7 @@ public actor AsyncImapSession {
         parseBodies: Bool,
         maxEmptyReads: Int = 10
     ) async throws -> [MessageSummary] {
+        try await ensureSelected()
         let command = try await client.send(.fetch(set, items))
         var messages: [ImapLiteralMessage] = []
         var emptyReads = 0
@@ -619,6 +640,7 @@ public actor AsyncImapSession {
         validity: UInt32? = nil,
         maxEmptyReads: Int = 10
     ) async throws -> ImapFetchBodyQresyncResult {
+        try await ensureSelected()
         let command = try await client.send(.fetch(set, items))
         var messages: [ImapLiteralMessage] = []
         var events: [ImapQresyncEvent] = []
@@ -676,6 +698,7 @@ public actor AsyncImapSession {
         items: String,
         maxEmptyReads: Int = 10
     ) async throws -> ImapFetchResult {
+        try await ensureSelected()
         let command = try await client.send(.uidFetch(set.description, items))
         var results: [ImapFetchResponse] = []
         var events: [ImapQresyncEvent] = []
@@ -713,6 +736,7 @@ public actor AsyncImapSession {
         parseBodies: Bool,
         maxEmptyReads: Int = 10
     ) async throws -> [MessageSummary] {
+        try await ensureSelected()
         let command = try await client.send(.uidFetch(set.description, items))
         var messages: [ImapLiteralMessage] = []
         var emptyReads = 0
@@ -763,6 +787,7 @@ public actor AsyncImapSession {
         data: String,
         maxEmptyReads: Int = 10
     ) async throws -> ImapFetchResult {
+        try await ensureSelected()
         let command = try await client.send(.uidStore(set.description, data))
         var results: [ImapFetchResponse] = []
         var events: [ImapQresyncEvent] = []
@@ -830,6 +855,7 @@ public actor AsyncImapSession {
     }
 
     public func startIdle(maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await ensureSelected()
         let command = try await client.send(.idle)
         var emptyReads = 0
         while emptyReads < maxEmptyReads {
@@ -852,6 +878,7 @@ public actor AsyncImapSession {
     }
 
     public func readIdleEvents(maxEmptyReads: Int = 10) async throws -> [ImapIdleEvent] {
+        try await ensureSelected()
         var emptyReads = 0
         var events: [ImapIdleEvent] = []
         while emptyReads < maxEmptyReads {
@@ -875,10 +902,12 @@ public actor AsyncImapSession {
     }
 
     public func stopIdle() async throws {
+        try await ensureSelected()
         _ = try await client.send(.idleDone)
     }
 
     public func readQresyncEvents(validity: UInt32 = 0, maxEmptyReads: Int = 10) async throws -> [ImapQresyncEvent] {
+        try await ensureSelected()
         var emptyReads = 0
         var events: [ImapQresyncEvent] = []
         while emptyReads < maxEmptyReads {
@@ -898,6 +927,20 @@ public actor AsyncImapSession {
             }
         }
         throw SessionError.timeout
+    }
+
+    private func ensureAuthenticated() async throws {
+        let current = ImapSessionState(await client.state)
+        guard current == .authenticated || current == .selected else {
+            throw SessionError.invalidImapState(expected: .authenticated, actual: current)
+        }
+    }
+
+    private func ensureSelected() async throws {
+        let current = ImapSessionState(await client.state)
+        guard current == .selected else {
+            throw SessionError.invalidImapState(expected: .selected, actual: current)
+        }
     }
 
     private func applySelectedState(_ state: inout ImapSelectedState, mailbox: String, from message: ImapLiteralMessage) {

@@ -6,11 +6,21 @@
 
 @available(macOS 10.15, iOS 13.0, *)
 public actor AsyncImapClient {
+    private enum PendingCommand {
+        case login
+        case authenticate
+        case select
+        case examine
+        case close
+        case logout
+    }
+
     private let transport: AsyncTransport
     private let queue = AsyncQueue<[UInt8]>()
     private var readerTask: Task<Void, Never>?
     private var literalDecoder = ImapLiteralDecoder()
     private var tagGenerator = ImapTagGenerator()
+    private var pending: [String: PendingCommand] = [:]
 
     public enum State: Sendable {
         case disconnected
@@ -56,10 +66,23 @@ public actor AsyncImapClient {
     @discardableResult
     public func send(_ kind: ImapCommandKind) async throws -> ImapCommand {
         let command = makeCommand(kind)
-        if case .login = kind {
+        switch kind {
+        case .login:
             state = .authenticating
-        } else if case .authenticate = kind {
+            pending[command.tag] = .login
+        case .authenticate:
             state = .authenticating
+            pending[command.tag] = .authenticate
+        case .select:
+            pending[command.tag] = .select
+        case .examine:
+            pending[command.tag] = .examine
+        case .close:
+            pending[command.tag] = .close
+        case .logout:
+            pending[command.tag] = .logout
+        default:
+            break
         }
         _ = try await send(command)
         return command
@@ -133,9 +156,7 @@ public actor AsyncImapClient {
     }
 
     public func login(user: String, password: String) async throws -> ImapResponse? {
-        state = .authenticating
-        let command = makeCommand(.login(user, password))
-        _ = try await send(command)
+        let command = try await send(.login(user, password))
         let response = await waitForTagged(command.tag)
         if response?.status == .ok {
             state = .authenticated
@@ -146,8 +167,7 @@ public actor AsyncImapClient {
     }
 
     public func select(mailbox: String) async throws -> ImapResponse? {
-        let command = makeCommand(.select(mailbox))
-        _ = try await send(command)
+        let command = try await send(.select(mailbox))
         let response = await waitForTagged(command.tag)
         if response?.status == .ok {
             state = .selected
@@ -156,8 +176,7 @@ public actor AsyncImapClient {
     }
 
     public func close() async throws -> ImapResponse? {
-        let command = makeCommand(.close)
-        _ = try await send(command)
+        let command = try await send(.close)
         let response = await waitForTagged(command.tag)
         if response?.status == .ok {
             state = .authenticated
@@ -166,8 +185,7 @@ public actor AsyncImapClient {
     }
 
     public func logout() async throws -> ImapResponse? {
-        let command = makeCommand(.logout)
-        _ = try await send(command)
+        let command = try await send(.logout)
         let response = await waitForTagged(command.tag)
         if response?.status == .ok || response?.status == .bye {
             state = .disconnected
@@ -181,6 +199,26 @@ public actor AsyncImapClient {
                 state = .authenticated
             } else if response.status == .bye {
                 state = .disconnected
+            }
+            return
+        }
+
+        if case let .tagged(tag) = response.kind, let pending = pending.removeValue(forKey: tag) {
+            switch pending {
+            case .login, .authenticate:
+                state = response.status == .ok ? .authenticated : .connected
+            case .select, .examine:
+                if response.status == .ok {
+                    state = .selected
+                }
+            case .close:
+                if response.status == .ok {
+                    state = .authenticated
+                }
+            case .logout:
+                if response.status == .ok || response.status == .bye {
+                    state = .disconnected
+                }
             }
             return
         }

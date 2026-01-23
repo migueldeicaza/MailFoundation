@@ -6,7 +6,7 @@
 
 import SwiftMimeKit
 
-public final class SmtpTransport: MailTransportBase<SmtpResponse>, MessageTransport {
+public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport {
     private let session: SmtpSession
     private var storedCapabilities: SmtpCapabilities?
 

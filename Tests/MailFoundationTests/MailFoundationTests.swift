@@ -1129,12 +1129,14 @@ func pop3StoreSelectedFolderAfterAuthenticate() throws {
 func imapStoreSelectedFolderOpenClose() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
+        Array("A0001 OK LOGIN\r\n".utf8),
         Array("* 2 EXISTS\r\n".utf8),
-        Array("A0001 OK EXAMINE\r\n".utf8),
-        Array("A0002 OK CLOSE\r\n".utf8)
+        Array("A0002 OK EXAMINE\r\n".utf8),
+        Array("A0003 OK CLOSE\r\n".utf8)
     ])
     let store = ImapMailStore(transport: transport)
     _ = try store.connect()
+    _ = try store.authenticate(user: "user", password: "pass")
     let folder = try store.openFolder("INBOX", access: .readOnly)
     #expect(store.selectedFolder === folder)
     #expect(store.selectedAccess == .readOnly)
@@ -1182,8 +1184,12 @@ func asyncImapStoreSelectedFolderOpenClose() async throws {
     await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
     _ = try await connectTask.value
 
+    let loginTask = Task { try await store.authenticate(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("A0001 OK LOGIN\r\n".utf8))
+    _ = try await loginTask.value
+
     let openTask = Task { try await store.openFolder("INBOX", access: .readOnly) }
-    await transport.yieldIncoming(Array("A0001 OK EXAMINE\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK EXAMINE\r\n".utf8))
     let folder = try await openTask.value
     let selectedFolder = await store.selectedFolder
     #expect(selectedFolder === folder)
@@ -1191,7 +1197,7 @@ func asyncImapStoreSelectedFolderOpenClose() async throws {
     #expect(await folder.isOpen == true)
 
     let closeTask = Task { try await store.closeFolder() }
-    await transport.yieldIncoming(Array("A0002 OK CLOSE\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK CLOSE\r\n".utf8))
     _ = try await closeTask.value
     #expect(await store.selectedFolder == nil)
     #expect(await store.selectedAccess == nil)
@@ -1956,6 +1962,28 @@ func asyncImapSessionFlow() async throws {
 }
 
 @available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP session requires selection for SEARCH")
+func asyncImapSessionRequiresSelection() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncImapSession(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let loginTask = Task { try await session.login(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("A0001 OK LOGIN\r\n".utf8))
+    _ = try await loginTask.value
+
+    do {
+        _ = try await session.search("ALL")
+        #expect(Bool(false))
+    } catch let error as SessionError {
+        #expect(error == .invalidImapState(expected: .selected, actual: .authenticated))
+    }
+}
+
+@available(macOS 10.15, iOS 13.0, *)
 @Test("Async IMAP session STARTTLS")
 func asyncImapSessionStartTls() async throws {
     let transport = StartTlsAsyncTransport()
@@ -1985,21 +2013,29 @@ func asyncImapSessionQueries() async throws {
     await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
     _ = try await connectTask.value
 
+    let loginTask = Task { try await session.login(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("A0001 OK LOGIN\r\n".utf8))
+    _ = try await loginTask.value
+
+    let selectTask = Task { try await session.select(mailbox: "INBOX") }
+    await transport.yieldIncoming(Array("A0002 OK SELECT\r\n".utf8))
+    _ = try await selectTask.value
+
     let searchTask = Task { try await session.search("ALL") }
     await transport.yieldIncoming(Array("* SEARCH 1 2 3\r\n".utf8))
-    await transport.yieldIncoming(Array("A0001 OK SEARCH\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK SEARCH\r\n".utf8))
     let search = try await searchTask.value
     #expect(search.ids == [1, 2, 3])
 
     let statusTask = Task { try await session.status(mailbox: "INBOX", items: ["MESSAGES", "UIDNEXT"]) }
     await transport.yieldIncoming(Array("* STATUS INBOX (MESSAGES 2 UIDNEXT 5)\r\n".utf8))
-    await transport.yieldIncoming(Array("A0002 OK STATUS\r\n".utf8))
+    await transport.yieldIncoming(Array("A0004 OK STATUS\r\n".utf8))
     let status = try await statusTask.value
     #expect(status.items["UIDNEXT"] == 5)
 
     let fetchTask = Task { try await session.fetch("1", items: "FLAGS") }
     await transport.yieldIncoming(Array("* 1 FETCH (FLAGS (\\Seen))\r\n".utf8))
-    await transport.yieldIncoming(Array("A0003 OK FETCH\r\n".utf8))
+    await transport.yieldIncoming(Array("A0005 OK FETCH\r\n".utf8))
     let fetch = try await fetchTask.value
     #expect(fetch.count == 1)
 }
@@ -2014,21 +2050,25 @@ func asyncImapSessionListLsubEnable() async throws {
     await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
     _ = try await connectTask.value
 
+    let loginTask = Task { try await session.login(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("A0001 OK LOGIN\r\n".utf8))
+    _ = try await loginTask.value
+
     let listTask = Task { try await session.list(reference: "\"\"", mailbox: "*") }
     await transport.yieldIncoming(Array("* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n".utf8))
-    await transport.yieldIncoming(Array("A0001 OK LIST\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK LIST\r\n".utf8))
     let list = try await listTask.value
     #expect(list.first?.name == "INBOX")
 
     let lsubTask = Task { try await session.lsub(reference: "\"\"", mailbox: "*") }
     await transport.yieldIncoming(Array("* LSUB (\\HasNoChildren) \"/\" \"INBOX\"\r\n".utf8))
-    await transport.yieldIncoming(Array("A0002 OK LSUB\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK LSUB\r\n".utf8))
     let lsub = try await lsubTask.value
     #expect(lsub.first?.name == "INBOX")
 
     let enableTask = Task { try await session.enable(["CONDSTORE", "QRESYNC"]) }
     await transport.yieldIncoming(Array("* ENABLED CONDSTORE QRESYNC\r\n".utf8))
-    await transport.yieldIncoming(Array("A0003 OK ENABLE\r\n".utf8))
+    await transport.yieldIncoming(Array("A0004 OK ENABLE\r\n".utf8))
     let enabled = try await enableTask.value
     #expect(enabled.contains("QRESYNC") == true)
 }
@@ -2043,9 +2083,17 @@ func asyncImapSessionUidSearch() async throws {
     await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
     _ = try await connectTask.value
 
+    let loginTask = Task { try await session.login(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("A0001 OK LOGIN\r\n".utf8))
+    _ = try await loginTask.value
+
+    let selectTask = Task { try await session.select(mailbox: "INBOX") }
+    await transport.yieldIncoming(Array("A0002 OK SELECT\r\n".utf8))
+    _ = try await selectTask.value
+
     let searchTask = Task { try await session.uidSearch("ALL") }
     await transport.yieldIncoming(Array("* SEARCH 10 11\r\n".utf8))
-    await transport.yieldIncoming(Array("A0001 OK UID SEARCH\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK UID SEARCH\r\n".utf8))
     let result = try await searchTask.value
     #expect(result.ids == [10, 11])
 }
@@ -2060,19 +2108,23 @@ func asyncImapSessionExamineCloseExpunge() async throws {
     await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
     _ = try await connectTask.value
 
+    let loginTask = Task { try await session.login(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("A0001 OK LOGIN\r\n".utf8))
+    _ = try await loginTask.value
+
     let examineTask = Task { try await session.examine(mailbox: "INBOX") }
     await transport.yieldIncoming(Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8))
-    await transport.yieldIncoming(Array("A0001 OK EXAMINE\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK EXAMINE\r\n".utf8))
     _ = try await examineTask.value
     #expect(await session.selectedMailbox == "INBOX")
 
     let expungeTask = Task { try await session.expunge() }
     await transport.yieldIncoming(Array("* 1 EXPUNGE\r\n".utf8))
-    await transport.yieldIncoming(Array("A0002 OK EXPUNGE\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK EXPUNGE\r\n".utf8))
     _ = try await expungeTask.value
 
     let closeTask = Task { try await session.close() }
-    await transport.yieldIncoming(Array("A0003 OK CLOSE\r\n".utf8))
+    await transport.yieldIncoming(Array("A0004 OK CLOSE\r\n".utf8))
     _ = try await closeTask.value
     #expect(await session.selectedMailbox == nil)
 }
@@ -2086,13 +2138,17 @@ func asyncImapSessionSelectedStateQresync() async throws {
     await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
     _ = try await connectTask.value
 
+    let loginTask = Task { try await session.login(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("A0001 OK LOGIN\r\n".utf8))
+    _ = try await loginTask.value
+
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
     await transport.yieldIncoming(Array("* 3 EXISTS\r\n".utf8))
     await transport.yieldIncoming(Array("* 1 RECENT\r\n".utf8))
     await transport.yieldIncoming(Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8))
     await transport.yieldIncoming(Array("* OK [UIDNEXT 10] Next\r\n".utf8))
     await transport.yieldIncoming(Array("* OK [HIGHESTMODSEQ 55] Modseq\r\n".utf8))
-    await transport.yieldIncoming(Array("A0001 OK SELECT\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK SELECT\r\n".utf8))
     _ = try await selectTask.value
 
     #expect(await session.selectedMailbox == "INBOX")
@@ -2107,7 +2163,7 @@ func asyncImapSessionSelectedStateQresync() async throws {
     await transport.yieldIncoming(Array("* 1 FETCH (UID 100 MODSEQ (57))\r\n".utf8))
     await transport.yieldIncoming(Array("* 2 EXPUNGE\r\n".utf8))
     await transport.yieldIncoming(Array("* VANISHED 101:102\r\n".utf8))
-    await transport.yieldIncoming(Array("A0002 OK FETCH\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK FETCH\r\n".utf8))
     let result = try await fetchTask.value
     #expect(result.responses.count == 1)
     #expect(result.qresyncEvents.count == 2)
@@ -2128,12 +2184,20 @@ func asyncImapSessionBodyFetchMapsQresync() async throws {
     await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
     _ = try await connectTask.value
 
+    let loginTask = Task { try await session.login(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("A0001 OK LOGIN\r\n".utf8))
+    _ = try await loginTask.value
+
+    let selectTask = Task { try await session.select(mailbox: "INBOX") }
+    await transport.yieldIncoming(Array("A0002 OK SELECT\r\n".utf8))
+    _ = try await selectTask.value
+
     let fetchTask = Task { try await session.fetchBodySectionsWithQresync("1", items: "BODY[]") }
     await transport.yieldIncoming(Array("* 1 FETCH (BODY[] {5}\r\n".utf8))
     await transport.yieldIncoming(Array("Hello".utf8))
     await transport.yieldIncoming(Array("* 1 FETCH (UID 9 MODSEQ (6))\r\n".utf8))
     await transport.yieldIncoming(Array("* VANISHED 2\r\n".utf8))
-    await transport.yieldIncoming(Array("A0001 OK FETCH\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK FETCH\r\n".utf8))
     let result = try await fetchTask.value
     #expect(result.bodies.count == 1)
     #expect(result.bodies.first?.body() == Array("Hello".utf8))
@@ -2150,16 +2214,20 @@ func asyncImapSessionUidFetchMapping() async throws {
     await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
     _ = try await connectTask.value
 
+    let loginTask = Task { try await session.login(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("A0001 OK LOGIN\r\n".utf8))
+    _ = try await loginTask.value
+
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
     await transport.yieldIncoming(Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8))
-    await transport.yieldIncoming(Array("A0001 OK SELECT\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK SELECT\r\n".utf8))
     _ = try await selectTask.value
 
     let uidSet = UniqueIdSet([UniqueId(validity: 7, id: 100), UniqueId(validity: 7, id: 200)])
     let fetchTask = Task { try await session.uidFetchWithQresync(uidSet, items: "UID MODSEQ") }
     await transport.yieldIncoming(Array("* 1 FETCH (UID 100 MODSEQ (56))\r\n".utf8))
     await transport.yieldIncoming(Array("* 2 FETCH (UID 200 MODSEQ (57))\r\n".utf8))
-    await transport.yieldIncoming(Array("A0002 OK UID FETCH\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK UID FETCH\r\n".utf8))
     _ = try await fetchTask.value
 
     let state = await session.selectedState
@@ -2177,9 +2245,13 @@ func asyncImapSessionQresyncStoreMixedEvents() async throws {
     await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
     _ = try await connectTask.value
 
+    let loginTask = Task { try await session.login(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("A0001 OK LOGIN\r\n".utf8))
+    _ = try await loginTask.value
+
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
     await transport.yieldIncoming(Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8))
-    await transport.yieldIncoming(Array("A0001 OK SELECT\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK SELECT\r\n".utf8))
     _ = try await selectTask.value
 
     let uidSet = UniqueIdSet([UniqueId(validity: 7, id: 100), UniqueId(validity: 7, id: 200)])
@@ -2189,7 +2261,7 @@ func asyncImapSessionQresyncStoreMixedEvents() async throws {
     await transport.yieldIncoming(Array("* 2 FETCH (UID 200 MODSEQ (57) FLAGS (\\Seen))\r\n".utf8))
     await transport.yieldIncoming(Array("* 2 EXPUNGE\r\n".utf8))
     await transport.yieldIncoming(Array("* VANISHED 300\r\n".utf8))
-    await transport.yieldIncoming(Array("A0002 OK UID STORE\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK UID STORE\r\n".utf8))
     let result = try await storeTask.value
     #expect(result.flagChanges.count == 2)
     #expect(result.qresyncEvents.count == 3)
@@ -2413,17 +2485,35 @@ func syncPop3SessionRequiresAuthentication() throws {
     }
 }
 
+@Test("Sync IMAP session requires selection for SEARCH")
+func syncImapSessionRequiresSelection() throws {
+    let transport = TestTransport(incoming: [
+        Array("* OK Ready\r\n".utf8),
+        Array("A0001 OK LOGIN\r\n".utf8)
+    ])
+    let session = ImapSession(transport: transport, maxReads: 2)
+    _ = try session.connect()
+    _ = try session.login(user: "user", password: "pass")
+    #expect(throws: SessionError.invalidImapState(expected: .selected, actual: .authenticated)) {
+        _ = try session.search("ALL")
+    }
+}
+
 @Test("Sync IMAP session flow")
 func syncImapSessionFlow() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
+        Array("A0001 OK LOGIN\r\n".utf8),
+        Array("A0002 OK SELECT\r\n".utf8),
         Array("* SEARCH 1 2 3\r\n".utf8),
-        Array("A0001 OK SEARCH\r\n".utf8),
+        Array("A0003 OK SEARCH\r\n".utf8),
         Array("* STATUS INBOX (MESSAGES 2 UIDNEXT 5)\r\n".utf8),
-        Array("A0002 OK STATUS\r\n".utf8)
+        Array("A0004 OK STATUS\r\n".utf8)
     ])
     let session = ImapSession(transport: transport, maxReads: 3)
     _ = try session.connect()
+    _ = try session.login(user: "user", password: "pass")
+    _ = try session.select(mailbox: "INBOX")
     let search = try session.search("ALL")
     #expect(search.ids == [1, 2, 3])
     let status = try session.status(mailbox: "INBOX", items: ["MESSAGES", "UIDNEXT"])
@@ -2434,11 +2524,15 @@ func syncImapSessionFlow() throws {
 func syncImapSessionUidSearch() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
+        Array("A0001 OK LOGIN\r\n".utf8),
+        Array("A0002 OK SELECT\r\n".utf8),
         Array("* SEARCH 10 11\r\n".utf8),
-        Array("A0001 OK UID SEARCH\r\n".utf8)
+        Array("A0003 OK UID SEARCH\r\n".utf8)
     ])
     let session = ImapSession(transport: transport, maxReads: 3)
     _ = try session.connect()
+    _ = try session.login(user: "user", password: "pass")
+    _ = try session.select(mailbox: "INBOX")
     let result = try session.uidSearch("ALL")
     #expect(result.ids == [10, 11])
 }
@@ -2447,15 +2541,17 @@ func syncImapSessionUidSearch() throws {
 func syncImapSessionListLsubEnable() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
+        Array("A0001 OK LOGIN\r\n".utf8),
         Array("* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n".utf8),
-        Array("A0001 OK LIST\r\n".utf8),
+        Array("A0002 OK LIST\r\n".utf8),
         Array("* LSUB (\\HasNoChildren) \"/\" \"INBOX\"\r\n".utf8),
-        Array("A0002 OK LSUB\r\n".utf8),
+        Array("A0003 OK LSUB\r\n".utf8),
         Array("* ENABLED CONDSTORE QRESYNC\r\n".utf8),
-        Array("A0003 OK ENABLE\r\n".utf8)
+        Array("A0004 OK ENABLE\r\n".utf8)
     ])
     let session = ImapSession(transport: transport, maxReads: 6)
     _ = try session.connect()
+    _ = try session.login(user: "user", password: "pass")
     let list = try session.list(reference: "\"\"", mailbox: "*")
     #expect(list.first?.name == "INBOX")
     let lsub = try session.lsub(reference: "\"\"", mailbox: "*")
@@ -2468,14 +2564,16 @@ func syncImapSessionListLsubEnable() throws {
 func syncImapSessionExamineCloseExpunge() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
+        Array("A0001 OK LOGIN\r\n".utf8),
         Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8),
-        Array("A0001 OK EXAMINE\r\n".utf8),
+        Array("A0002 OK EXAMINE\r\n".utf8),
         Array("* 1 EXPUNGE\r\n".utf8),
-        Array("A0002 OK EXPUNGE\r\n".utf8),
-        Array("A0003 OK CLOSE\r\n".utf8)
+        Array("A0003 OK EXPUNGE\r\n".utf8),
+        Array("A0004 OK CLOSE\r\n".utf8)
     ])
     let session = ImapSession(transport: transport, maxReads: 6)
     _ = try session.connect()
+    _ = try session.login(user: "user", password: "pass")
     _ = try session.examine(mailbox: "INBOX")
     #expect(session.selectedMailbox == "INBOX")
     _ = try session.expunge()
@@ -2486,19 +2584,21 @@ func syncImapSessionExamineCloseExpunge() throws {
 func syncImapSessionSelectedStateQresync() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
+        Array("A0001 OK LOGIN\r\n".utf8),
         Array("* 3 EXISTS\r\n".utf8),
         Array("* 1 RECENT\r\n".utf8),
         Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8),
         Array("* OK [UIDNEXT 10] Next\r\n".utf8),
         Array("* OK [HIGHESTMODSEQ 55] Modseq\r\n".utf8),
-        Array("A0001 OK SELECT\r\n".utf8),
+        Array("A0002 OK SELECT\r\n".utf8),
         Array("* 1 FETCH (UID 100 MODSEQ (57))\r\n".utf8),
         Array("* 2 EXPUNGE\r\n".utf8),
         Array("* VANISHED 101:102\r\n".utf8),
-        Array("A0002 OK FETCH\r\n".utf8)
+        Array("A0003 OK FETCH\r\n".utf8)
     ])
     let session = ImapSession(transport: transport, maxReads: 6)
     _ = try session.connect()
+    _ = try session.login(user: "user", password: "pass")
     _ = try session.select(mailbox: "INBOX")
     #expect(session.selectedMailbox == "INBOX")
     #expect(session.selectedState.uidValidity == 7)
@@ -2520,14 +2620,18 @@ func syncImapSessionSelectedStateQresync() throws {
 func syncImapSessionBodyFetchMapsQresync() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
+        Array("A0001 OK LOGIN\r\n".utf8),
+        Array("A0002 OK SELECT\r\n".utf8),
         Array("* 1 FETCH (BODY[] {5}\r\n".utf8),
         Array("Hello".utf8),
         Array("* 1 FETCH (UID 9 MODSEQ (6))\r\n".utf8),
         Array("* VANISHED 2\r\n".utf8),
-        Array("A0001 OK FETCH\r\n".utf8)
+        Array("A0003 OK FETCH\r\n".utf8)
     ])
     let session = ImapSession(transport: transport, maxReads: 4)
     _ = try session.connect()
+    _ = try session.login(user: "user", password: "pass")
+    _ = try session.select(mailbox: "INBOX")
     let result = try session.fetchBodySectionsWithQresync("1", items: "BODY[]")
     #expect(result.bodies.count == 1)
     #expect(result.bodies.first?.body() == Array("Hello".utf8))
@@ -2538,18 +2642,20 @@ func syncImapSessionBodyFetchMapsQresync() throws {
 func syncImapSessionUidFetchStoreMapping() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
+        Array("A0001 OK LOGIN\r\n".utf8),
         Array("* 2 EXISTS\r\n".utf8),
         Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8),
-        Array("A0001 OK SELECT\r\n".utf8),
+        Array("A0002 OK SELECT\r\n".utf8),
         Array("* 1 FETCH (UID 100 MODSEQ (56))\r\n".utf8),
         Array("* 2 FETCH (UID 200 MODSEQ (57))\r\n".utf8),
-        Array("A0002 OK UID FETCH\r\n".utf8),
+        Array("A0003 OK UID FETCH\r\n".utf8),
         Array("* 1 EXPUNGE\r\n".utf8),
         Array("* 1 FETCH (UID 200 MODSEQ (58) FLAGS (\\Seen))\r\n".utf8),
-        Array("A0003 OK UID STORE\r\n".utf8)
+        Array("A0004 OK UID STORE\r\n".utf8)
     ])
     let session = ImapSession(transport: transport, maxReads: 10)
     _ = try session.connect()
+    _ = try session.login(user: "user", password: "pass")
     _ = try session.select(mailbox: "INBOX")
 
     let uidSet = UniqueIdSet([UniqueId(validity: 7, id: 100), UniqueId(validity: 7, id: 200)])
@@ -2573,17 +2679,19 @@ func syncImapSessionUidFetchStoreMapping() throws {
 func syncImapSessionQresyncStoreMixedEvents() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
+        Array("A0001 OK LOGIN\r\n".utf8),
         Array("* OK [UIDVALIDITY 7] Ready\r\n".utf8),
-        Array("A0001 OK SELECT\r\n".utf8),
+        Array("A0002 OK SELECT\r\n".utf8),
         Array("* 2 EXISTS\r\n".utf8),
         Array("* 1 FETCH (UID 100 MODSEQ (56) FLAGS (\\Seen))\r\n".utf8),
         Array("* 2 FETCH (UID 200 MODSEQ (57) FLAGS (\\Seen))\r\n".utf8),
         Array("* 2 EXPUNGE\r\n".utf8),
         Array("* VANISHED 300\r\n".utf8),
-        Array("A0002 OK UID STORE\r\n".utf8)
+        Array("A0003 OK UID STORE\r\n".utf8)
     ])
     let session = ImapSession(transport: transport, maxReads: 10)
     _ = try session.connect()
+    _ = try session.login(user: "user", password: "pass")
     _ = try session.select(mailbox: "INBOX")
 
     let uidSet = UniqueIdSet([UniqueId(validity: 7, id: 100), UniqueId(validity: 7, id: 200)])

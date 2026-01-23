@@ -73,6 +73,7 @@ public final class ImapSession {
     }
 
     public func enable(_ capabilities: [String]) throws -> [String] {
+        try ensureAuthenticated()
         let command = client.send(.enable(capabilities))
         try ensureWrite()
         var enabled: [String] = []
@@ -99,6 +100,7 @@ public final class ImapSession {
     }
 
     public func select(mailbox: String) throws -> ImapResponse {
+        try ensureAuthenticated()
         let command = client.send(.select(mailbox))
         try ensureWrite()
         var reads = 0
@@ -128,6 +130,7 @@ public final class ImapSession {
     }
 
     public func examine(mailbox: String) throws -> ImapResponse {
+        try ensureAuthenticated()
         let command = client.send(.examine(mailbox))
         try ensureWrite()
         var reads = 0
@@ -157,6 +160,7 @@ public final class ImapSession {
     }
 
     public func close() throws -> ImapResponse {
+        try ensureSelected()
         let command = client.send(.close)
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
@@ -171,6 +175,7 @@ public final class ImapSession {
     }
 
     public func check() throws -> ImapResponse {
+        try ensureSelected()
         let command = client.send(.check)
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
@@ -183,6 +188,7 @@ public final class ImapSession {
     }
 
     public func expunge() throws -> ImapResponse {
+        try ensureSelected()
         let command = client.send(.expunge)
         try ensureWrite()
         var reads = 0
@@ -206,6 +212,7 @@ public final class ImapSession {
     }
 
     public func create(mailbox: String) throws -> ImapResponse {
+        try ensureAuthenticated()
         let command = client.send(.create(mailbox))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
@@ -218,6 +225,7 @@ public final class ImapSession {
     }
 
     public func delete(mailbox: String) throws -> ImapResponse {
+        try ensureAuthenticated()
         let command = client.send(.delete(mailbox))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
@@ -230,6 +238,7 @@ public final class ImapSession {
     }
 
     public func rename(mailbox: String, newName: String) throws -> ImapResponse {
+        try ensureAuthenticated()
         let command = client.send(.rename(mailbox, newName))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
@@ -242,6 +251,7 @@ public final class ImapSession {
     }
 
     public func subscribe(mailbox: String) throws -> ImapResponse {
+        try ensureAuthenticated()
         let command = client.send(.subscribe(mailbox))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
@@ -254,6 +264,7 @@ public final class ImapSession {
     }
 
     public func unsubscribe(mailbox: String) throws -> ImapResponse {
+        try ensureAuthenticated()
         let command = client.send(.unsubscribe(mailbox))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
@@ -271,6 +282,7 @@ public final class ImapSession {
     }
 
     public func listResponses(reference: String, mailbox: String) throws -> [ImapMailboxListResponse] {
+        try ensureAuthenticated()
         let command = client.send(.list(reference, mailbox))
         try ensureWrite()
         var responses: [ImapMailboxListResponse] = []
@@ -303,6 +315,7 @@ public final class ImapSession {
     }
 
     public func lsubResponses(reference: String, mailbox: String) throws -> [ImapMailboxListResponse] {
+        try ensureAuthenticated()
         let command = client.send(.lsub(reference, mailbox))
         try ensureWrite()
         var responses: [ImapMailboxListResponse] = []
@@ -330,6 +343,7 @@ public final class ImapSession {
     }
 
     public func listStatus(reference: String, mailbox: String) throws -> [ImapListStatusResponse] {
+        try ensureAuthenticated()
         let command = client.send(.list(reference, mailbox))
         try ensureWrite()
         var responses: [ImapListStatusResponse] = []
@@ -357,6 +371,7 @@ public final class ImapSession {
     }
 
     public func search(_ criteria: String) throws -> ImapSearchResponse {
+        try ensureSelected()
         let command = client.send(.search(criteria))
         try ensureWrite()
         var ids: [UInt32] = []
@@ -392,6 +407,7 @@ public final class ImapSession {
     }
 
     public func uidSearch(_ criteria: String) throws -> ImapSearchResponse {
+        try ensureSelected()
         let command = client.send(.uidSearch(criteria))
         try ensureWrite()
         var ids: [UInt32] = []
@@ -443,6 +459,7 @@ public final class ImapSession {
     }
 
     public func fetchWithQresync(_ set: String, items: String) throws -> ImapFetchResult {
+        try ensureSelected()
         let command = client.send(.fetch(set, items))
         try ensureWrite()
         var results: [ImapFetchResponse] = []
@@ -476,6 +493,7 @@ public final class ImapSession {
     }
 
     public func fetchSummariesWithQresync(_ set: String, items: String, parseBodies: Bool) throws -> [MessageSummary] {
+        try ensureSelected()
         let command = client.send(.fetch(set, items))
         try ensureWrite()
         var messages: [ImapLiteralMessage] = []
@@ -517,6 +535,7 @@ public final class ImapSession {
         items: String,
         validity: UInt32? = nil
     ) throws -> ImapFetchBodyQresyncResult {
+        try ensureSelected()
         let command = client.send(.fetch(set, items))
         try ensureWrite()
         var reads = 0
@@ -567,6 +586,7 @@ public final class ImapSession {
     }
 
     public func uidFetchWithQresync(_ set: UniqueIdSet, items: String) throws -> ImapFetchResult {
+        try ensureSelected()
         let command = client.send(.uidFetch(set.description, items))
         try ensureWrite()
         var results: [ImapFetchResponse] = []
@@ -600,6 +620,7 @@ public final class ImapSession {
     }
 
     public func uidFetchSummariesWithQresync(_ set: UniqueIdSet, items: String, parseBodies: Bool) throws -> [MessageSummary] {
+        try ensureSelected()
         let command = client.send(.uidFetch(set.description, items))
         try ensureWrite()
         var messages: [ImapLiteralMessage] = []
@@ -642,6 +663,7 @@ public final class ImapSession {
     }
 
     public func uidStoreWithQresync(_ set: UniqueIdSet, data: String) throws -> ImapFetchResult {
+        try ensureSelected()
         let command = client.send(.uidStore(set.description, data))
         try ensureWrite()
         var results: [ImapFetchResponse] = []
@@ -684,6 +706,7 @@ public final class ImapSession {
     }
 
     public func status(mailbox: String, items: [String]) throws -> ImapStatusResponse {
+        try ensureAuthenticated()
         let command = client.send(.status(mailbox, items: items))
         try ensureWrite()
         var result: ImapStatusResponse?
@@ -736,6 +759,7 @@ public final class ImapSession {
     }
 
     public func startIdle() throws -> ImapResponse {
+        try ensureSelected()
         _ = client.send(.idle)
         try ensureWrite()
         guard let response = client.waitForContinuation(maxReads: maxReads) else {
@@ -745,6 +769,7 @@ public final class ImapSession {
     }
 
     public func readIdleEvents(maxReads: Int? = nil) -> [ImapIdleEvent] {
+        guard client.state == .selected else { return [] }
         let limit = maxReads ?? self.maxReads
         var reads = 0
         var events: [ImapIdleEvent] = []
@@ -768,11 +793,13 @@ public final class ImapSession {
     }
 
     public func stopIdle() throws {
+        try ensureSelected()
         _ = client.send(.idleDone)
         try ensureWrite()
     }
 
     public func readQresyncEvents(validity: UInt32 = 0, maxReads: Int? = nil) -> [ImapQresyncEvent] {
+        guard client.state == .selected else { return [] }
         let limit = maxReads ?? self.maxReads
         var reads = 0
         var events: [ImapQresyncEvent] = []
@@ -814,6 +841,20 @@ public final class ImapSession {
     private func ensureWrite() throws {
         if !client.lastWriteSucceeded {
             throw SessionError.transportWriteFailed
+        }
+    }
+
+    private func ensureAuthenticated() throws {
+        let current = ImapSessionState(client.state)
+        guard current == .authenticated || current == .selected else {
+            throw SessionError.invalidImapState(expected: .authenticated, actual: current)
+        }
+    }
+
+    private func ensureSelected() throws {
+        let current = ImapSessionState(client.state)
+        guard current == .selected else {
+            throw SessionError.invalidImapState(expected: .selected, actual: current)
         }
     }
 

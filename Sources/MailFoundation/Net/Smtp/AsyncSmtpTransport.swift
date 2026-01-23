@@ -7,7 +7,7 @@
 import SwiftMimeKit
 
 @available(macOS 10.15, iOS 13.0, *)
-public actor AsyncSmtpTransport: AsyncMailService, AsyncMessageTransport {
+public actor AsyncSmtpTransport: AsyncMailTransport {
     public typealias ConnectResponse = SmtpResponse?
     private let session: AsyncSmtpSession
     private var storedCapabilities: SmtpCapabilities?
