@@ -213,3 +213,9 @@ public final class SmtpSession {
         }
     }
 }
+
+extension SmtpSession: MessageTransport {
+    public func sendMessage(from: String, to recipients: [String], data: [UInt8]) throws {
+        _ = try sendMail(from: from, to: recipients, data: data)
+    }
+}

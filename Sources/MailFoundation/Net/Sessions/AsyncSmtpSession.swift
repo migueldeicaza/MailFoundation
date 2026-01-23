@@ -138,3 +138,10 @@ public actor AsyncSmtpSession {
         await client.capabilities
     }
 }
+
+@available(macOS 10.15, iOS 13.0, *)
+extension AsyncSmtpSession: AsyncMessageTransport {
+    public func sendMessage(from: String, to recipients: [String], data: [UInt8]) async throws {
+        _ = try await sendMail(from: from, to: recipients, data: data)
+    }
+}
