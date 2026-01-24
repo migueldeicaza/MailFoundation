@@ -94,6 +94,59 @@ public actor AsyncImapMailStore: AsyncMailStore {
         _ = try await folder.close()
     }
 
+    public func createFolder(_ path: String, maxEmptyReads: Int = 10) async throws -> AsyncImapFolder {
+        let folder = try await getFolder(path)
+        _ = try await folder.create(maxEmptyReads: maxEmptyReads)
+        return folder
+    }
+
+    public func createFolder(_ folder: AsyncImapFolder, maxEmptyReads: Int = 10) async throws -> AsyncImapFolder {
+        _ = try await folder.create(maxEmptyReads: maxEmptyReads)
+        return folder
+    }
+
+    public func deleteFolder(_ path: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        if let selectedFolderStorage, selectedFolderStorage.mailbox.name == path {
+            return try await selectedFolderStorage.delete(maxEmptyReads: maxEmptyReads)
+        }
+        let folder = try await getFolder(path)
+        return try await folder.delete(maxEmptyReads: maxEmptyReads)
+    }
+
+    public func deleteFolder(_ folder: AsyncImapFolder, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await folder.delete(maxEmptyReads: maxEmptyReads)
+    }
+
+    public func renameFolder(_ path: String, to newName: String, maxEmptyReads: Int = 10) async throws -> AsyncImapFolder {
+        if let selectedFolderStorage, selectedFolderStorage.mailbox.name == path {
+            return try await selectedFolderStorage.rename(to: newName, maxEmptyReads: maxEmptyReads)
+        }
+        let folder = try await getFolder(path)
+        return try await folder.rename(to: newName, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func renameFolder(_ folder: AsyncImapFolder, to newName: String, maxEmptyReads: Int = 10) async throws -> AsyncImapFolder {
+        try await folder.rename(to: newName, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func subscribeFolder(_ path: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        let folder = try await getFolder(path)
+        return try await folder.subscribe(maxEmptyReads: maxEmptyReads)
+    }
+
+    public func subscribeFolder(_ folder: AsyncImapFolder, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await folder.subscribe(maxEmptyReads: maxEmptyReads)
+    }
+
+    public func unsubscribeFolder(_ path: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        let folder = try await getFolder(path)
+        return try await folder.unsubscribe(maxEmptyReads: maxEmptyReads)
+    }
+
+    public func unsubscribeFolder(_ folder: AsyncImapFolder, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await folder.unsubscribe(maxEmptyReads: maxEmptyReads)
+    }
+
     internal func updateSelectedFolder(_ folder: AsyncImapFolder?, access: FolderAccess?) {
         selectedFolderStorage = folder
         selectedAccessStorage = access
@@ -154,6 +207,44 @@ public actor AsyncImapFolder: AsyncMailFolder {
         return response
     }
 
+    public func create(maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await session.create(mailbox: mailbox.name, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func delete(maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        let response = try await session.delete(mailbox: mailbox.name, maxEmptyReads: maxEmptyReads)
+        if let store {
+            let selected = await store.selectedFolder
+            if selected === self {
+                access = nil
+                await store.updateSelectedFolder(nil, access: nil)
+            }
+        }
+        return response
+    }
+
+    public func rename(to newName: String, maxEmptyReads: Int = 10) async throws -> AsyncImapFolder {
+        _ = try await session.rename(mailbox: mailbox.name, newName: newName, maxEmptyReads: maxEmptyReads)
+        let newMailbox = ImapMailbox(kind: mailbox.kind, name: newName, delimiter: mailbox.delimiter, attributes: mailbox.rawAttributes)
+        let renamed = AsyncImapFolder(session: session, mailbox: newMailbox, store: store)
+        if let store {
+            let selected = await store.selectedFolder
+            if selected === self, let access {
+                await renamed.updateOpenState(access)
+                await store.updateSelectedFolder(renamed, access: access)
+            }
+        }
+        return renamed
+    }
+
+    public func subscribe(maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await session.subscribe(mailbox: mailbox.name, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func unsubscribe(maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await session.unsubscribe(mailbox: mailbox.name, maxEmptyReads: maxEmptyReads)
+    }
+
     public func expunge(maxEmptyReads: Int = 10) async throws -> ImapResponse {
         try await session.expunge(maxEmptyReads: maxEmptyReads)
     }
@@ -168,5 +259,9 @@ public actor AsyncImapFolder: AsyncMailFolder {
 
     public func uidFetchSummaries(_ set: UniqueIdSet, request: FetchRequest, previewLength: Int = 512) async throws -> [MessageSummary] {
         try await session.uidFetchSummaries(set, request: request, previewLength: previewLength)
+    }
+
+    internal func updateOpenState(_ access: FolderAccess?) async {
+        self.access = access
     }
 }

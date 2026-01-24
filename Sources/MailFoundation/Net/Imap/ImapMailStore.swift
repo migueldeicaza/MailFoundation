@@ -73,6 +73,59 @@ public final class ImapMailStore: MailServiceBase<ImapResponse>, MailStore {
         _ = try folder.close()
     }
 
+    public func createFolder(_ path: String) throws -> ImapFolder {
+        let folder = try getFolder(path)
+        _ = try folder.create()
+        return folder
+    }
+
+    public func createFolder(_ folder: ImapFolder) throws -> ImapFolder {
+        _ = try folder.create()
+        return folder
+    }
+
+    public func deleteFolder(_ path: String) throws -> ImapResponse {
+        if let selectedFolder, selectedFolder.mailbox.name == path {
+            return try selectedFolder.delete()
+        }
+        let folder = try getFolder(path)
+        return try folder.delete()
+    }
+
+    public func deleteFolder(_ folder: ImapFolder) throws -> ImapResponse {
+        try folder.delete()
+    }
+
+    public func renameFolder(_ path: String, to newName: String) throws -> ImapFolder {
+        if let selectedFolder, selectedFolder.mailbox.name == path {
+            return try selectedFolder.rename(to: newName)
+        }
+        let folder = try getFolder(path)
+        return try folder.rename(to: newName)
+    }
+
+    public func renameFolder(_ folder: ImapFolder, to newName: String) throws -> ImapFolder {
+        try folder.rename(to: newName)
+    }
+
+    public func subscribeFolder(_ path: String) throws -> ImapResponse {
+        let folder = try getFolder(path)
+        return try folder.subscribe()
+    }
+
+    public func subscribeFolder(_ folder: ImapFolder) throws -> ImapResponse {
+        try folder.subscribe()
+    }
+
+    public func unsubscribeFolder(_ path: String) throws -> ImapResponse {
+        let folder = try getFolder(path)
+        return try folder.unsubscribe()
+    }
+
+    public func unsubscribeFolder(_ folder: ImapFolder) throws -> ImapResponse {
+        try folder.unsubscribe()
+    }
+
     internal func updateSelectedFolder(_ folder: ImapFolder?, access: FolderAccess?) {
         selectedFolder = folder
         selectedAccess = access
@@ -126,6 +179,38 @@ public final class ImapFolder: MailFolderBase {
 
     public func expunge() throws -> ImapResponse {
         try session.expunge()
+    }
+
+    public func create() throws -> ImapResponse {
+        try session.create(mailbox: mailbox.name)
+    }
+
+    public func delete() throws -> ImapResponse {
+        let response = try session.delete(mailbox: mailbox.name)
+        if store?.selectedFolder === self {
+            updateOpenState(nil)
+            store?.updateSelectedFolder(nil, access: nil)
+        }
+        return response
+    }
+
+    public func rename(to newName: String) throws -> ImapFolder {
+        _ = try session.rename(mailbox: mailbox.name, newName: newName)
+        let newMailbox = ImapMailbox(kind: mailbox.kind, name: newName, delimiter: mailbox.delimiter, attributes: mailbox.rawAttributes)
+        let renamed = ImapFolder(session: session, mailbox: newMailbox, store: store)
+        if let access = access, store?.selectedFolder === self {
+            renamed.updateOpenState(access)
+            store?.updateSelectedFolder(renamed, access: access)
+        }
+        return renamed
+    }
+
+    public func subscribe() throws -> ImapResponse {
+        try session.subscribe(mailbox: mailbox.name)
+    }
+
+    public func unsubscribe() throws -> ImapResponse {
+        try session.unsubscribe(mailbox: mailbox.name)
     }
 
     public func status(items: [String]) throws -> ImapStatusResponse {
