@@ -1,51 +1,59 @@
 //
 // NetworkTransport.swift
 //
-// Network.framework transport (iOS/macOS).
+// Foundation stream transport (iOS/macOS) with in-place STARTTLS.
 //
 
 #if canImport(Network)
-@preconcurrency import Network
 import Foundation
-#if canImport(Security)
-import Security
-#endif
 
 @available(macOS 10.15, iOS 13.0, *)
 public actor NetworkTransport: AsyncStartTlsTransport {
     public nonisolated let incoming: AsyncStream<[UInt8]>
     private let continuation: AsyncStream<[UInt8]>.Continuation
-    private var connection: NWConnection
-    private let queue: DispatchQueue
-    private let host: NWEndpoint.Host
-    private let port: NWEndpoint.Port
-    private let hostString: String
-    private var started: Bool = false
 
-    public init(host: String, port: UInt16, parameters: NWParameters = .tcp) {
+    private let host: String
+    private let port: Int
+    private var input: InputStream?
+    private var output: OutputStream?
+    private var started: Bool = false
+    private var readerTask: Task<Void, Never>?
+
+    public init(host: String, port: UInt16) {
+        self.host = host
+        self.port = Int(port)
         var continuation: AsyncStream<[UInt8]>.Continuation!
         self.incoming = AsyncStream { cont in
             continuation = cont
         }
         self.continuation = continuation
-        self.queue = DispatchQueue(label: "mailfoundation.networktransport")
-        self.hostString = host
-        self.host = NWEndpoint.Host(host)
-        self.port = NWEndpoint.Port(rawValue: port)!
-        self.connection = NWConnection(host: self.host, port: self.port, using: parameters)
     }
 
     public func start() async throws {
         guard !started else { return }
         started = true
-        connection.start(queue: queue)
-        receiveLoop(for: connection)
+
+        if input == nil || output == nil {
+            Stream.getStreamsToHost(withName: host, port: port, inputStream: &input, outputStream: &output)
+        }
+
+        guard let input, let output else {
+            started = false
+            throw AsyncTransportError.connectionFailed
+        }
+
+        input.open()
+        output.open()
+        readerTask = Task { await readLoop() }
     }
 
     public func stop() async {
         guard started else { return }
         started = false
-        connection.cancel()
+        readerTask?.cancel()
+        readerTask = nil
+        input?.close()
+        output?.close()
         continuation.finish()
     }
 
@@ -53,15 +61,26 @@ public actor NetworkTransport: AsyncStartTlsTransport {
         guard started else {
             throw AsyncTransportError.notStarted
         }
+        guard let output else {
+            throw AsyncTransportError.connectionFailed
+        }
+        guard !bytes.isEmpty else { return }
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            connection.send(content: bytes, completion: .contentProcessed { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
+        var totalWritten = 0
+        while totalWritten < bytes.count {
+            let written = bytes.withUnsafeBytes { pointer -> Int in
+                guard let base = pointer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                    return -1
                 }
-            })
+                let start = base.advanced(by: totalWritten)
+                return output.write(start, maxLength: bytes.count - totalWritten)
+            }
+
+            if written <= 0 {
+                throw AsyncTransportError.sendFailed
+            }
+
+            totalWritten += written
         }
     }
 
@@ -69,49 +88,47 @@ public actor NetworkTransport: AsyncStartTlsTransport {
         guard started else {
             throw AsyncTransportError.notStarted
         }
+        guard let input, let output else {
+            throw AsyncTransportError.connectionFailed
+        }
 
-        let tlsParameters = makeTlsParameters(validateCertificate: validateCertificate)
-        let newConnection = NWConnection(host: host, port: port, using: tlsParameters)
-        let oldConnection = connection
-        connection = newConnection
-        oldConnection.cancel()
-        newConnection.start(queue: queue)
-        receiveLoop(for: newConnection)
-    }
-
-    private func receiveLoop(for connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self] content, _, isComplete, error in
-            guard let self else { return }
-            Task { await self.handleReceive(content: content, isComplete: isComplete, error: error, connection: connection) }
+        let settings: [String: Any] = [
+            kCFStreamSSLPeerName as String: host,
+            kCFStreamSSLValidatesCertificateChain as String: validateCertificate
+        ]
+        let key = Stream.PropertyKey(kCFStreamPropertySSLSettings as String)
+        let inputOk = input.setProperty(settings, forKey: key)
+        let outputOk = output.setProperty(settings, forKey: key)
+        guard inputOk && outputOk else {
+            throw AsyncTransportError.connectionFailed
         }
     }
 
-    private func handleReceive(content: Data?, isComplete: Bool, error: NWError?, connection: NWConnection) async {
-        guard connection === self.connection else { return }
-        if let content, !content.isEmpty {
-            continuation.yield([UInt8](content))
-        }
+    private func readLoop() async {
+        guard let input else { return }
+        var buffer = Array(repeating: UInt8(0), count: 4096)
 
-        if error != nil || isComplete {
-            await stop()
-            return
-        }
+        while started {
+            if !input.hasBytesAvailable {
+                if input.streamStatus == .atEnd {
+                    await stop()
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 5_000_000)
+                continue
+            }
 
-        receiveLoop(for: connection)
-    }
-
-    private func makeTlsParameters(validateCertificate: Bool) -> NWParameters {
-        let tlsOptions = NWProtocolTLS.Options()
-        sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, hostString)
-        if !validateCertificate {
-            #if canImport(Security)
-            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, completion in
-                completion(true)
-            }, queue)
-            #endif
+            let count = input.read(&buffer, maxLength: buffer.count)
+            if count > 0 {
+                continuation.yield(Array(buffer.prefix(count)))
+            } else if count == 0 {
+                await stop()
+                break
+            } else {
+                await stop()
+                break
+            }
         }
-        let tcpOptions = NWProtocolTCP.Options()
-        return NWParameters(tls: tlsOptions, tcp: tcpOptions)
     }
 }
 #endif
