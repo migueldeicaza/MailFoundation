@@ -65,6 +65,27 @@ func syncSmtpSessionAddressParsing() throws {
     #expect(help.text.contains("VRFY"))
 }
 
+@Test("Sync SMTP session parses split multiline responses")
+func syncSmtpSessionSplitMultilineResponses() throws {
+    let transport = TestTransport(incoming: [
+        Array("220 Ready\r\n".utf8),
+        Array("250-User <user@example.com>\r".utf8),
+        Array("\n250 <other@example.com>\r\n".utf8),
+        Array("214-Commands:\r\n214 VRFY".utf8),
+        Array(" EXPN HELP\r\n".utf8)
+    ])
+    let session = SmtpSession(transport: transport, maxReads: 4)
+    _ = try session.connect()
+
+    let vrfy = try session.vrfyResult("user")
+    let vrfyAddresses = vrfy.mailboxes.map(\.address)
+    #expect(vrfyAddresses.contains("user@example.com"))
+    #expect(vrfyAddresses.contains("other@example.com"))
+
+    let help = try session.helpResult()
+    #expect(help.text.contains("EXPN") == true)
+}
+
 @available(macOS 10.15, iOS 13.0, *)
 @Test("Async SMTP session BDAT chunk")
 func asyncSmtpSessionBdatChunk() async throws {
@@ -141,4 +162,29 @@ func asyncSmtpSessionAddressParsing() async throws {
     let help = try await helpTask.value
     #expect(help.lines.count == 2)
     #expect(help.text.contains("VRFY"))
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async SMTP session parses split multiline responses")
+func asyncSmtpSessionSplitMultilineResponses() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncSmtpSession(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("220 Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let vrfyTask = Task { try await session.vrfyResult("user") }
+    await transport.yieldIncoming(Array("250-User <user@example.com>\r".utf8))
+    await transport.yieldIncoming(Array("\n250 <other@example.com>\r\n".utf8))
+    let vrfy = try await vrfyTask.value
+    let vrfyAddresses = vrfy.mailboxes.map(\.address)
+    #expect(vrfyAddresses.contains("user@example.com"))
+    #expect(vrfyAddresses.contains("other@example.com"))
+
+    let helpTask = Task { try await session.helpResult() }
+    await transport.yieldIncoming(Array("214-Commands:\r\n214 VRFY".utf8))
+    await transport.yieldIncoming(Array(" EXPN HELP\r\n".utf8))
+    let help = try await helpTask.value
+    #expect(help.text.contains("EXPN") == true)
 }

@@ -137,9 +137,9 @@ public actor AsyncPop3Client {
         multilineDecoder.expectMultiline()
     }
 
-    public func nextResponses() async -> [Pop3Response] {
+    public func nextResponses() async -> [Pop3Response]? {
         guard let chunk = await queue.dequeue() else {
-            return []
+            return nil
         }
         protocolLogger.logServer(chunk, offset: 0, count: chunk.count)
         let responses = decoder.append(chunk)
@@ -150,15 +150,12 @@ public actor AsyncPop3Client {
     }
 
     public func waitForResponse() async -> Pop3Response? {
-        while true {
-            let responses = await nextResponses()
+        while let responses = await nextResponses() {
             if let first = responses.first {
                 return first
             }
-            if responses.isEmpty {
-                return nil
-            }
         }
+        return nil
     }
 
     public func nextEvents() async -> [Pop3ResponseEvent] {

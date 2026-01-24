@@ -1736,7 +1736,7 @@ func asyncPop3ClientIntegration() async throws {
     #expect(String(decoding: sent.first ?? [], as: UTF8.self) == "STAT\r\n")
 
     await transport.yieldIncoming(Array("+OK 1 10\r\n".utf8))
-    let responses = await client.nextResponses()
+    let responses = await client.nextResponses() ?? []
     #expect(responses.first?.isSuccess == true)
 
     await client.expectMultilineResponse()

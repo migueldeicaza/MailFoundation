@@ -87,6 +87,25 @@ func syncPop3SessionDataResponses() throws {
     #expect(topResponse.parseHeaders()[.subject] == "Preview")
 }
 
+@Test("Sync POP3 session parses split responses")
+func syncPop3SessionSplitResponses() throws {
+    let transport = TestTransport(incoming: [
+        Array("+OK Rea".utf8),
+        Array("dy\r\n".utf8),
+        Array("+OK U".utf8),
+        Array("SER\r\n".utf8),
+        Array("+OK P".utf8),
+        Array("ASS\r\n".utf8),
+        Array("+OK NO".utf8),
+        Array("OP\r\n".utf8)
+    ])
+    let session = Pop3Session(transport: transport, maxReads: 4)
+    _ = try session.connect()
+    _ = try session.authenticate(user: "user", password: "pass")
+    let noop = try session.noop()
+    #expect(noop.isSuccess)
+}
+
 @available(macOS 10.15, iOS 13.0, *)
 @Test("Async POP3 session LAST and raw bytes")
 func asyncPop3SessionLastAndRawBytes() async throws {
@@ -199,6 +218,31 @@ func asyncPop3SessionDataResponses() async throws {
     let topResponse = try await topTask.value
     #expect(topResponse.data == Array(topData.utf8))
     #expect(topResponse.parseHeaders()[.subject] == "Preview")
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async POP3 session parses split responses")
+func asyncPop3SessionSplitResponses() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncPop3Session(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("+OK Rea".utf8))
+    await transport.yieldIncoming(Array("dy\r\n".utf8))
+    _ = try await connectTask.value
+
+    let authTask = Task { try await session.authenticate(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("+OK U".utf8))
+    await transport.yieldIncoming(Array("SER\r\n".utf8))
+    await transport.yieldIncoming(Array("+OK P".utf8))
+    await transport.yieldIncoming(Array("ASS\r\n".utf8))
+    _ = try await authTask.value
+
+    let noopTask = Task { try await session.noop() }
+    await transport.yieldIncoming(Array("+OK NO".utf8))
+    await transport.yieldIncoming(Array("OP\r\n".utf8))
+    let noop = try await noopTask.value
+    #expect(noop?.isSuccess == true)
 }
 
 @available(macOS 10.15, iOS 13.0, *)

@@ -113,9 +113,9 @@ public actor AsyncSmtpClient {
         return bytes
     }
 
-    public func nextResponses() async -> [SmtpResponse] {
+    public func nextResponses() async -> [SmtpResponse]? {
         guard let chunk = await queue.dequeue() else {
-            return []
+            return nil
         }
         protocolLogger.logServer(chunk, offset: 0, count: chunk.count)
         let responses = decoder.append(chunk)
@@ -126,15 +126,12 @@ public actor AsyncSmtpClient {
     }
 
     public func waitForResponse() async -> SmtpResponse? {
-        while true {
-            let responses = await nextResponses()
+        while let responses = await nextResponses() {
             if let first = responses.first {
                 return first
             }
-            if responses.isEmpty {
-                return nil
-            }
         }
+        return nil
     }
 
     public func sendData(_ message: [UInt8]) async throws -> SmtpResponse? {
