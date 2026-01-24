@@ -27,6 +27,14 @@ public struct MessageSummary: Sendable, Equatable {
         sequence > 0 ? sequence - 1 : 0
     }
 
+    public var normalizedSubject: String {
+        ThreadableSubject.parse(envelope?.subject).normalized
+    }
+
+    public var isReply: Bool {
+        ThreadableSubject.parse(envelope?.subject).replyDepth != 0
+    }
+
     public init(
         sequence: Int,
         items: MessageSummaryItems = .none,
