@@ -106,6 +106,37 @@ func syncPop3SessionSplitResponses() throws {
     #expect(noop.isSuccess)
 }
 
+@Test("Sync POP3 session dot-stuffing and empty lines")
+func syncPop3SessionDotStuffingAndEmptyLines() throws {
+    let dataChunk = Array("+OK\r\n".utf8)
+        + Array("\r\n".utf8)
+        + Array("..\r\n".utf8)
+        + Array("..dot\r\n".utf8)
+        + Array("plain\r\n".utf8)
+        + Array(".\r\n".utf8)
+
+    let transport = TestTransport(incoming: [
+        Array("+OK Ready\r\n".utf8),
+        Array("+OK\r\n".utf8),
+        Array("+OK\r\n".utf8),
+        dataChunk,
+        dataChunk
+    ])
+    let session = Pop3Session(transport: transport, maxReads: 5)
+    _ = try session.connect()
+    _ = try session.authenticate(user: "user", password: "pass")
+
+    let expected = Array("\r\n.\r\n.dot\r\nplain".utf8)
+    let retrBytes = try session.retrRaw(1)
+    #expect(retrBytes == expected)
+
+    var streamed: [UInt8] = []
+    try session.retrStream(1) { chunk in
+        streamed.append(contentsOf: chunk)
+    }
+    #expect(streamed == expected)
+}
+
 @available(macOS 10.15, iOS 13.0, *)
 @Test("Async POP3 session LAST and raw bytes")
 func asyncPop3SessionLastAndRawBytes() async throws {
@@ -243,6 +274,47 @@ func asyncPop3SessionSplitResponses() async throws {
     await transport.yieldIncoming(Array("OP\r\n".utf8))
     let noop = try await noopTask.value
     #expect(noop?.isSuccess == true)
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async POP3 session dot-stuffing and empty lines")
+func asyncPop3SessionDotStuffingAndEmptyLines() async throws {
+    let dataChunk = Array("+OK\r\n".utf8)
+        + Array("\r\n".utf8)
+        + Array("..\r\n".utf8)
+        + Array("..dot\r\n".utf8)
+        + Array("plain\r\n".utf8)
+        + Array(".\r\n".utf8)
+
+    let transport = AsyncStreamTransport()
+    let session = AsyncPop3Session(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("+OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let authTask = Task { try await session.authenticate(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("+OK\r\n".utf8))
+    await transport.yieldIncoming(Array("+OK\r\n".utf8))
+    _ = try await authTask.value
+
+    let expected = Array("\r\n.\r\n.dot\r\nplain".utf8)
+
+    let retrTask = Task { try await session.retrRaw(1) }
+    await transport.yieldIncoming(dataChunk)
+    let retrBytes = try await retrTask.value
+    #expect(retrBytes == expected)
+
+    let collector = ByteCollector()
+    let streamTask = Task {
+        try await session.retrStream(1) { chunk in
+            await collector.append(chunk)
+        }
+    }
+    await transport.yieldIncoming(dataChunk)
+    _ = try await streamTask.value
+    let streamed = await collector.snapshot()
+    #expect(streamed == expected)
 }
 
 @available(macOS 10.15, iOS 13.0, *)
