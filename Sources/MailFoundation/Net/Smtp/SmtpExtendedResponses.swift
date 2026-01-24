@@ -16,6 +16,14 @@ public struct SmtpVrfyResult: @unchecked Sendable {
         self.rawLines = response.lines
         self.mailboxes = SmtpAddressQueryParser.parseMailboxes(from: response.lines)
     }
+
+    public var enhancedStatusCodes: [SmtpEnhancedStatusCode] {
+        response.enhancedStatusCodes
+    }
+
+    public var enhancedStatusCode: SmtpEnhancedStatusCode? {
+        response.enhancedStatusCode
+    }
 }
 
 public struct SmtpExpnResult: @unchecked Sendable {
@@ -27,6 +35,14 @@ public struct SmtpExpnResult: @unchecked Sendable {
         self.response = response
         self.rawLines = response.lines
         self.mailboxes = SmtpAddressQueryParser.parseMailboxes(from: response.lines)
+    }
+
+    public var enhancedStatusCodes: [SmtpEnhancedStatusCode] {
+        response.enhancedStatusCodes
+    }
+
+    public var enhancedStatusCode: SmtpEnhancedStatusCode? {
+        response.enhancedStatusCode
     }
 }
 
@@ -41,6 +57,14 @@ public struct SmtpHelpResult: Sendable {
 
     public var text: String {
         lines.joined(separator: "\n")
+    }
+
+    public var enhancedStatusCodes: [SmtpEnhancedStatusCode] {
+        response.enhancedStatusCodes
+    }
+
+    public var enhancedStatusCode: SmtpEnhancedStatusCode? {
+        response.enhancedStatusCode
     }
 }
 
