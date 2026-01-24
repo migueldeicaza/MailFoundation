@@ -67,14 +67,26 @@ public extension Envelope {
             listArchive = value.trimmingCharacters(in: .whitespacesAndNewlines)
         case "list-help":
             listHelp = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        case "list-owner":
+            listOwner = value.trimmingCharacters(in: .whitespacesAndNewlines)
         case "list-post":
             listPost = value.trimmingCharacters(in: .whitespacesAndNewlines)
         case "list-subscribe":
             listSubscribe = value.trimmingCharacters(in: .whitespacesAndNewlines)
         case "list-unsubscribe":
             listUnsubscribe = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        case "list-unsubscribe-post":
+            listUnsubscribePost = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        case "arc-seal":
+            arcSeals.append(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        case "arc-message-signature":
+            arcMessageSignatures.append(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        case "arc-authentication-results":
+            arcAuthenticationResults.append(value.trimmingCharacters(in: .whitespacesAndNewlines))
         case "dkim-signature":
             dkimSignatures.append(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        case "domainkey-signature":
+            domainKeySignatures.append(value.trimmingCharacters(in: .whitespacesAndNewlines))
         case "authentication-results":
             authenticationResults.append(value.trimmingCharacters(in: .whitespacesAndNewlines))
         case "received-spf":
