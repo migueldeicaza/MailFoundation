@@ -8,6 +8,9 @@ import Foundation
 import SwiftMimeKit
 
 public enum MailTransportError: Error, Sendable, Equatable {
+    case notConnected
+    case notAuthenticated
+    case internationalNotSupported
     case missingSender
     case missingRecipients
 }

@@ -53,11 +53,11 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         await session.disconnect()
     }
 
-    public func addMessageSentHandler(_ handler: @escaping MessageSentHandler) {
+    public func addMessageSentHandler(_ handler: @escaping MessageSentHandler) async {
         messageSentHandlers.append(handler)
     }
 
-    public func removeAllMessageSentHandlers() {
+    public func removeAllMessageSentHandlers() async {
         messageSentHandlers.removeAll()
     }
 
@@ -98,8 +98,10 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         options: FormatOptions = MailTransportFormatOptions.default,
         progress: TransferProgress? = nil
     ) async throws -> SmtpResponse {
+        try await ensureConnected()
+        try await ensureInternationalSupport(options)
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
-        let mailParameters = resolveMailParameters(nil, data: envelope.data)
+        let mailParameters = resolveMailParameters(nil, data: envelope.data, options: options)
         let response = try await session.sendMail(
             from: envelope.sender.address,
             to: envelope.recipients.map { $0.address },
@@ -118,8 +120,10 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         options: FormatOptions = MailTransportFormatOptions.default,
         progress: TransferProgress? = nil
     ) async throws -> SmtpResponse {
+        try await ensureConnected()
+        try await ensureInternationalSupport(options)
         let data = try MailTransportEnvelopeBuilder.encodeMessage(message, options: options, progress: progress)
-        let mailParameters = resolveMailParameters(nil, data: data)
+        let mailParameters = resolveMailParameters(nil, data: data, options: options)
         let response = try await session.sendMail(
             from: sender.address,
             to: recipients.map { $0.address },
@@ -139,8 +143,10 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         mailParameters: SmtpMailFromParameters? = nil,
         rcptParameters: SmtpRcptToParameters? = nil
     ) async throws -> SmtpResponse {
+        try await ensureConnected()
+        try await ensureInternationalSupport(options)
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
-        let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data)
+        let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data, options: options)
         if supportsCapability("CHUNKING") {
             let response = try await session.sendMailChunked(
                 from: envelope.sender.address,
@@ -171,8 +177,10 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         mailParameters: SmtpMailFromParameters? = nil,
         rcptParameters: SmtpRcptToParameters? = nil
     ) async throws -> SmtpResponse {
+        try await ensureConnected()
+        try await ensureInternationalSupport(options)
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
-        let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data)
+        let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data, options: options)
         if supportsCapability("PIPELINING") {
             let response = try await session.sendMailPipelined(
                 from: envelope.sender.address,
@@ -196,7 +204,8 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
     }
 
     public func sendMessage(from: String, to recipients: [String], data: [UInt8]) async throws {
-        let mailParameters = resolveMailParameters(nil, data: data)
+        try await ensureConnected()
+        let mailParameters = resolveMailParameters(nil, data: data, options: MailTransportFormatOptions.default)
         _ = try await session.sendMail(
             from: from,
             to: recipients,
@@ -204,6 +213,24 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
             mailParameters: mailParameters,
             rcptParameters: nil
         )
+    }
+
+    public func sendMessage(
+        _ message: MimeMessage,
+        options: FormatOptions = MailTransportFormatOptions.default,
+        progress: TransferProgress? = nil
+    ) async throws {
+        _ = try await send(message, options: options, progress: progress)
+    }
+
+    public func sendMessage(
+        _ message: MimeMessage,
+        sender: MailboxAddress,
+        recipients: [MailboxAddress],
+        options: FormatOptions = MailTransportFormatOptions.default,
+        progress: TransferProgress? = nil
+    ) async throws {
+        _ = try await send(message, sender: sender, recipients: recipients, options: options, progress: progress)
     }
 
     private func updateAuthenticationMechanisms(from capabilities: SmtpCapabilities) {
@@ -227,9 +254,18 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         storedCapabilities?.supports(name) ?? false
     }
 
-    private func resolveMailParameters(_ base: SmtpMailFromParameters?, data: [UInt8]) -> SmtpMailFromParameters? {
+    private func resolveMailParameters(
+        _ base: SmtpMailFromParameters?,
+        data: [UInt8],
+        options: FormatOptions
+    ) -> SmtpMailFromParameters? {
         var parameters = base ?? SmtpMailFromParameters()
         var hasParameters = base != nil
+
+        if options.international {
+            parameters.smtpUtf8 = true
+            hasParameters = true
+        }
 
         if supportsCapability("SIZE"), parameters.size == nil {
             parameters.size = data.count
@@ -246,6 +282,18 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
 
     private func dataContainsNonAscii(_ data: [UInt8]) -> Bool {
         data.contains { $0 > 0x7f }
+    }
+
+    private func ensureConnected() async throws {
+        guard await session.isConnected else {
+            throw MailTransportError.notConnected
+        }
+    }
+
+    private func ensureInternationalSupport(_ options: FormatOptions) async throws {
+        if options.international, !supportsCapability("SMTPUTF8") {
+            throw MailTransportError.internationalNotSupported
+        }
     }
 
     private func notifyMessageSent(message: MimeMessage, response: String) async {

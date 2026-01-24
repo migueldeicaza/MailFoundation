@@ -39,7 +39,12 @@ public protocol MessageTransport: AnyObject {
     func sendMessage(from: String, to recipients: [String], data: [UInt8]) throws
 }
 
-public protocol MailTransport: MailService, MessageTransport {}
+public typealias MessageSentHandler = @Sendable (MessageSentEvent) -> Void
+
+public protocol MailTransport: MailService, MessageTransport {
+    func addMessageSentHandler(_ handler: @escaping MessageSentHandler)
+    func removeAllMessageSentHandlers()
+}
 
 @available(macOS 10.15, iOS 13.0, *)
 public protocol AsyncMessageTransport: AnyObject {
@@ -47,4 +52,10 @@ public protocol AsyncMessageTransport: AnyObject {
 }
 
 @available(macOS 10.15, iOS 13.0, *)
-public protocol AsyncMailTransport: AsyncMailService, AsyncMessageTransport {}
+public typealias AsyncMessageSentHandler = @Sendable (MessageSentEvent) async -> Void
+
+@available(macOS 10.15, iOS 13.0, *)
+public protocol AsyncMailTransport: AsyncMailService, AsyncMessageTransport {
+    func addMessageSentHandler(_ handler: @escaping AsyncMessageSentHandler) async
+    func removeAllMessageSentHandlers() async
+}

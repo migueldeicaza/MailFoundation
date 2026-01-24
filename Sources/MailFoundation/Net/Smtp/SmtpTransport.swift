@@ -90,8 +90,10 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
         options: FormatOptions = MailTransportFormatOptions.default,
         progress: TransferProgress? = nil
     ) throws -> SmtpResponse {
+        try ensureConnected()
+        try ensureInternationalSupport(options)
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
-        let mailParameters = resolveMailParameters(nil, data: envelope.data)
+        let mailParameters = resolveMailParameters(nil, data: envelope.data, options: options)
         let response = try session.sendMail(
             from: envelope.sender.address,
             to: envelope.recipients.map { $0.address },
@@ -110,8 +112,10 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
         options: FormatOptions = MailTransportFormatOptions.default,
         progress: TransferProgress? = nil
     ) throws -> SmtpResponse {
+        try ensureConnected()
+        try ensureInternationalSupport(options)
         let data = try MailTransportEnvelopeBuilder.encodeMessage(message, options: options, progress: progress)
-        let mailParameters = resolveMailParameters(nil, data: data)
+        let mailParameters = resolveMailParameters(nil, data: data, options: options)
         let response = try session.sendMail(
             from: sender.address,
             to: recipients.map { $0.address },
@@ -131,8 +135,10 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
         mailParameters: SmtpMailFromParameters? = nil,
         rcptParameters: SmtpRcptToParameters? = nil
     ) throws -> SmtpResponse {
+        try ensureConnected()
+        try ensureInternationalSupport(options)
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
-        let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data)
+        let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data, options: options)
         let response: SmtpResponse
         if supportsCapability("CHUNKING") {
             response = try session.sendMailChunked(
@@ -163,8 +169,10 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
         mailParameters: SmtpMailFromParameters? = nil,
         rcptParameters: SmtpRcptToParameters? = nil
     ) throws -> SmtpResponse {
+        try ensureConnected()
+        try ensureInternationalSupport(options)
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
-        let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data)
+        let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data, options: options)
         let response: SmtpResponse
         if supportsCapability("PIPELINING") {
             response = try session.sendMailPipelined(
@@ -188,7 +196,8 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
     }
 
     public func sendMessage(from: String, to recipients: [String], data: [UInt8]) throws {
-        let mailParameters = resolveMailParameters(nil, data: data)
+        try ensureConnected()
+        let mailParameters = resolveMailParameters(nil, data: data, options: MailTransportFormatOptions.default)
         _ = try session.sendMail(
             from: from,
             to: recipients,
@@ -196,6 +205,24 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
             mailParameters: mailParameters,
             rcptParameters: nil
         )
+    }
+
+    public func sendMessage(
+        _ message: MimeMessage,
+        options: FormatOptions = MailTransportFormatOptions.default,
+        progress: TransferProgress? = nil
+    ) throws {
+        _ = try send(message, options: options, progress: progress)
+    }
+
+    public func sendMessage(
+        _ message: MimeMessage,
+        sender: MailboxAddress,
+        recipients: [MailboxAddress],
+        options: FormatOptions = MailTransportFormatOptions.default,
+        progress: TransferProgress? = nil
+    ) throws {
+        _ = try send(message, sender: sender, recipients: recipients, options: options, progress: progress)
     }
 
     private func updateAuthenticationMechanisms(from capabilities: SmtpCapabilities) {
@@ -223,9 +250,18 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
         storedCapabilities?.supports(name) ?? false
     }
 
-    private func resolveMailParameters(_ base: SmtpMailFromParameters?, data: [UInt8]) -> SmtpMailFromParameters? {
+    private func resolveMailParameters(
+        _ base: SmtpMailFromParameters?,
+        data: [UInt8],
+        options: FormatOptions
+    ) -> SmtpMailFromParameters? {
         var parameters = base ?? SmtpMailFromParameters()
         var hasParameters = base != nil
+
+        if options.international {
+            parameters.smtpUtf8 = true
+            hasParameters = true
+        }
 
         if supportsCapability("SIZE"), parameters.size == nil {
             parameters.size = data.count
@@ -242,5 +278,17 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
 
     private func dataContainsNonAscii(_ data: [UInt8]) -> Bool {
         data.contains { $0 > 0x7f }
+    }
+
+    private func ensureConnected() throws {
+        guard isConnected else {
+            throw MailTransportError.notConnected
+        }
+    }
+
+    private func ensureInternationalSupport(_ options: FormatOptions) throws {
+        if options.international, !supportsCapability("SMTPUTF8") {
+            throw MailTransportError.internationalNotSupported
+        }
     }
 }
