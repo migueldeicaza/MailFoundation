@@ -60,6 +60,10 @@ public final class ImapMailStore: MailServiceBase<ImapResponse>, MailStore {
         return folder
     }
 
+    public func openInbox(access: FolderAccess) throws -> ImapFolder {
+        try openFolder("INBOX", access: access)
+    }
+
     public func openFolder(_ folder: ImapFolder, access: FolderAccess) throws {
         _ = try folder.open(access)
     }

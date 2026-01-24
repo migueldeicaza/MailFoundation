@@ -81,6 +81,10 @@ public actor AsyncImapMailStore: AsyncMailStore {
         return folder
     }
 
+    public func openInbox(access: FolderAccess) async throws -> AsyncImapFolder {
+        try await openFolder("INBOX", access: access)
+    }
+
     public func openFolder(_ folder: AsyncImapFolder, access: FolderAccess) async throws {
         _ = try await folder.open(access)
     }
