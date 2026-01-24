@@ -84,6 +84,22 @@ public actor AsyncPop3MailStore: AsyncMailStore {
         return inbox
     }
 
+    public func noop() async throws -> Pop3Response? {
+        try await session.noop()
+    }
+
+    public func rset() async throws -> Pop3Response? {
+        try await session.rset()
+    }
+
+    public func dele(_ index: Int) async throws -> Pop3Response? {
+        try await session.dele(index)
+    }
+
+    public func last() async throws -> Int {
+        try await session.last()
+    }
+
     internal func updateSelectedFolder(_ folder: AsyncPop3Folder?, access: FolderAccess?) {
         selectedFolderStorage = folder
         selectedAccessStorage = access
@@ -128,6 +144,22 @@ public actor AsyncPop3Folder: AsyncMailFolder {
         if let store {
             await store.updateSelectedFolder(nil, access: nil)
         }
+    }
+
+    public func noop() async throws -> Pop3Response? {
+        try await session.noop()
+    }
+
+    public func rset() async throws -> Pop3Response? {
+        try await session.rset()
+    }
+
+    public func dele(_ index: Int) async throws -> Pop3Response? {
+        try await session.dele(index)
+    }
+
+    public func last() async throws -> Int {
+        try await session.last()
     }
 
     public func stat() async throws -> Pop3StatResponse? {

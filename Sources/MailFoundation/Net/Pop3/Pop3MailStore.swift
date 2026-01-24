@@ -69,6 +69,22 @@ public final class Pop3MailStore: MailServiceBase<Pop3Response>, MailStore {
         return inbox
     }
 
+    public func noop() throws -> Pop3Response {
+        try session.noop()
+    }
+
+    public func rset() throws -> Pop3Response {
+        try session.rset()
+    }
+
+    public func dele(_ index: Int) throws -> Pop3Response {
+        try session.dele(index)
+    }
+
+    public func last() throws -> Int {
+        try session.last()
+    }
+
     internal func updateSelectedFolder(_ folder: Pop3Folder?, access: FolderAccess?) {
         selectedFolder = folder
         selectedAccess = access
@@ -97,6 +113,22 @@ public final class Pop3Folder: MailFolderBase {
     public func close() {
         updateOpenState(nil)
         store?.updateSelectedFolder(nil, access: nil)
+    }
+
+    public func noop() throws -> Pop3Response {
+        try session.noop()
+    }
+
+    public func rset() throws -> Pop3Response {
+        try session.rset()
+    }
+
+    public func dele(_ index: Int) throws -> Pop3Response {
+        try session.dele(index)
+    }
+
+    public func last() throws -> Int {
+        try session.last()
     }
 
     public func stat() throws -> Pop3StatResponse {

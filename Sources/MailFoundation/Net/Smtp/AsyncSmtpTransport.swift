@@ -82,6 +82,30 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         try await session.rset()
     }
 
+    public func vrfy(_ argument: String) async throws -> SmtpResponse? {
+        try await session.vrfy(argument)
+    }
+
+    public func vrfyResult(_ argument: String) async throws -> SmtpVrfyResult {
+        try await session.vrfyResult(argument)
+    }
+
+    public func expn(_ argument: String) async throws -> SmtpResponse? {
+        try await session.expn(argument)
+    }
+
+    public func expnResult(_ argument: String) async throws -> SmtpExpnResult {
+        try await session.expnResult(argument)
+    }
+
+    public func help(_ argument: String? = nil) async throws -> SmtpResponse? {
+        try await session.help(argument)
+    }
+
+    public func helpResult(_ argument: String? = nil) async throws -> SmtpHelpResult {
+        try await session.helpResult(argument)
+    }
+
     public func startTls(validateCertificate: Bool = true) async throws -> SmtpResponse {
         let response = try await session.startTls(validateCertificate: validateCertificate)
         storedCapabilities = nil

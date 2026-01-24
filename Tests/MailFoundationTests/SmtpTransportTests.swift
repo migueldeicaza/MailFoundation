@@ -149,6 +149,28 @@ func smtpTransportSendPipelined() throws {
     #expect(sent.contains(where: { $0.hasPrefix("MAIL FROM:<alice@example.com>") }))
 }
 
+@Test("SMTP transport VRFY/EXPN/HELP helpers")
+func smtpTransportExtendedCommands() throws {
+    let transport = TestTransport(incoming: [
+        Array("220 Ready\r\n".utf8),
+        Array("252 <alice@example.com>\r\n".utf8),
+        Array("250-<bob@example.com>\r\n250 <carol@example.com>\r\n".utf8),
+        Array("214-Commands:\r\n214 VRFY EXPN HELP\r\n".utf8)
+    ])
+    let smtp = SmtpTransport(transport: transport, maxReads: 3)
+    _ = try smtp.connect()
+
+    let vrfy = try smtp.vrfyResult("alice")
+    #expect(vrfy.mailboxes.count == 1)
+    #expect(vrfy.mailboxes.first?.address == "alice@example.com")
+
+    let expn = try smtp.expnResult("list")
+    #expect(expn.mailboxes.count == 2)
+
+    let help = try smtp.helpResult()
+    #expect(help.text.contains("VRFY") == true)
+}
+
 @available(macOS 10.15, iOS 13.0, *)
 @Test("Async SMTP transport send chunked")
 func asyncSmtpTransportSendChunked() async throws {
@@ -197,6 +219,33 @@ func asyncSmtpTransportRequiresConnection() async throws {
     } catch {
         #expect(error as? MailTransportError == .notConnected)
     }
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async SMTP transport VRFY/EXPN/HELP helpers")
+func asyncSmtpTransportExtendedCommands() async throws {
+    let transport = AsyncStreamTransport()
+    let smtp = AsyncSmtpTransport(transport: transport)
+
+    let connectTask = Task { try await smtp.connect() }
+    await transport.yieldIncoming(Array("220 Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let vrfyTask = Task { try await smtp.vrfyResult("alice") }
+    await transport.yieldIncoming(Array("252 <alice@example.com>\r\n".utf8))
+    let vrfy = try await vrfyTask.value
+    #expect(vrfy.mailboxes.count == 1)
+    #expect(vrfy.mailboxes.first?.address == "alice@example.com")
+
+    let expnTask = Task { try await smtp.expnResult("list") }
+    await transport.yieldIncoming(Array("250-<bob@example.com>\r\n250 <carol@example.com>\r\n".utf8))
+    let expn = try await expnTask.value
+    #expect(expn.mailboxes.count == 2)
+
+    let helpTask = Task { try await smtp.helpResult() }
+    await transport.yieldIncoming(Array("214-Commands:\r\n214 VRFY EXPN HELP\r\n".utf8))
+    let help = try await helpTask.value
+    #expect(help.text.contains("VRFY") == true)
 }
 
 @available(macOS 10.15, iOS 13.0, *)

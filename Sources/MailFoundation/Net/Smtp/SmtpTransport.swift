@@ -71,6 +71,30 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
         try session.rset()
     }
 
+    public func vrfy(_ argument: String) throws -> SmtpResponse {
+        try session.vrfy(argument)
+    }
+
+    public func vrfyResult(_ argument: String) throws -> SmtpVrfyResult {
+        try session.vrfyResult(argument)
+    }
+
+    public func expn(_ argument: String) throws -> SmtpResponse {
+        try session.expn(argument)
+    }
+
+    public func expnResult(_ argument: String) throws -> SmtpExpnResult {
+        try session.expnResult(argument)
+    }
+
+    public func help(_ argument: String? = nil) throws -> SmtpResponse {
+        try session.help(argument)
+    }
+
+    public func helpResult(_ argument: String? = nil) throws -> SmtpHelpResult {
+        try session.helpResult(argument)
+    }
+
     public func startTls(validateCertificate: Bool = true) throws -> SmtpResponse {
         let response = try session.startTls(validateCertificate: validateCertificate)
         storedCapabilities = nil
