@@ -84,6 +84,67 @@ func pop3FolderCommandHelpers() throws {
     #expect(sent.contains("LAST\r\n"))
 }
 
+@Test("POP3 store command helpers")
+func pop3StoreCommandHelpers() throws {
+    let transport = TestTransport(incoming: [
+        Array("+OK Ready\r\n".utf8),
+        Array("+OK USER\r\n".utf8),
+        Array("+OK PASS\r\n".utf8),
+        Array("+OK NOOP\r\n".utf8),
+        Array("+OK DELE\r\n".utf8),
+        Array("+OK RSET\r\n".utf8),
+        Array("+OK 9\r\n".utf8)
+    ])
+    let store = Pop3MailStore(transport: transport)
+    _ = try store.connect()
+    _ = try store.authenticate(user: "user", password: "pass")
+
+    let noop = try store.noop()
+    #expect(noop.isSuccess)
+    let dele = try store.dele(3)
+    #expect(dele.isSuccess)
+    let rset = try store.rset()
+    #expect(rset.isSuccess)
+    let last = try store.last()
+    #expect(last == 9)
+
+    let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent.contains("NOOP\r\n"))
+    #expect(sent.contains("DELE 3\r\n"))
+    #expect(sent.contains("RSET\r\n"))
+    #expect(sent.contains("LAST\r\n"))
+}
+
+@Test("POP3 store commands require authentication")
+func pop3StoreCommandsRequireAuthentication() throws {
+    let transport = TestTransport(incoming: [
+        Array("+OK Ready\r\n".utf8)
+    ])
+    let store = Pop3MailStore(transport: transport)
+    _ = try store.connect()
+
+    #expect(throws: SessionError.invalidState(expected: .authenticated, actual: .connected)) {
+        _ = try store.noop()
+    }
+}
+
+@Test("POP3 store command error response")
+func pop3StoreCommandErrorResponse() throws {
+    let transport = TestTransport(incoming: [
+        Array("+OK Ready\r\n".utf8),
+        Array("+OK USER\r\n".utf8),
+        Array("+OK PASS\r\n".utf8),
+        Array("-ERR Nope\r\n".utf8)
+    ])
+    let store = Pop3MailStore(transport: transport)
+    _ = try store.connect()
+    _ = try store.authenticate(user: "user", password: "pass")
+
+    #expect(throws: SessionError.pop3Error(message: "Nope")) {
+        _ = try store.dele(1)
+    }
+}
+
 @available(macOS 10.15, iOS 13.0, *)
 @Test("Async POP3 folder message data")
 func asyncPop3FolderMessageData() async throws {
@@ -189,4 +250,47 @@ func asyncPop3FolderCommandHelpers() async throws {
     #expect(sentText.contains("DELE 2\r\n"))
     #expect(sentText.contains("RSET\r\n"))
     #expect(sentText.contains("LAST\r\n"))
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async POP3 store commands require authentication")
+func asyncPop3StoreCommandsRequireAuthentication() async throws {
+    let transport = AsyncStreamTransport()
+    let store = AsyncPop3MailStore(transport: transport)
+
+    let connectTask = Task { try await store.connect() }
+    await transport.yieldIncoming(Array("+OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    do {
+        _ = try await store.noop()
+        #expect(Bool(false))
+    } catch {
+        #expect(error as? SessionError == .invalidState(expected: .authenticated, actual: .connected))
+    }
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async POP3 store command error response")
+func asyncPop3StoreCommandErrorResponse() async throws {
+    let transport = AsyncStreamTransport()
+    let store = AsyncPop3MailStore(transport: transport)
+
+    let connectTask = Task { try await store.connect() }
+    await transport.yieldIncoming(Array("+OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("+OK\r\n".utf8))
+    await transport.yieldIncoming(Array("+OK\r\n".utf8))
+    _ = try await authTask.value
+
+    let deleTask = Task { try await store.dele(1) }
+    await transport.yieldIncoming(Array("-ERR Nope\r\n".utf8))
+    do {
+        _ = try await deleTask.value
+        #expect(Bool(false))
+    } catch {
+        #expect(error as? SessionError == .pop3Error(message: "Nope"))
+    }
 }

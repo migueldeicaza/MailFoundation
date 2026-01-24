@@ -76,19 +76,37 @@ public actor AsyncPop3Session {
     public func noop() async throws -> Pop3Response? {
         try await ensureAuthenticated()
         _ = try await client.send(.noop)
-        return await client.waitForResponse()
+        guard let response = await client.waitForResponse() else {
+            throw SessionError.timeout
+        }
+        guard response.isSuccess else {
+            throw SessionError.pop3Error(message: response.message)
+        }
+        return response
     }
 
     public func rset() async throws -> Pop3Response? {
         try await ensureAuthenticated()
         _ = try await client.send(.rset)
-        return await client.waitForResponse()
+        guard let response = await client.waitForResponse() else {
+            throw SessionError.timeout
+        }
+        guard response.isSuccess else {
+            throw SessionError.pop3Error(message: response.message)
+        }
+        return response
     }
 
     public func dele(_ index: Int) async throws -> Pop3Response? {
         try await ensureAuthenticated()
         _ = try await client.send(.dele(index))
-        return await client.waitForResponse()
+        guard let response = await client.waitForResponse() else {
+            throw SessionError.timeout
+        }
+        guard response.isSuccess else {
+            throw SessionError.pop3Error(message: response.message)
+        }
+        return response
     }
 
     public func list(_ index: Int) async throws -> Pop3ListItem {

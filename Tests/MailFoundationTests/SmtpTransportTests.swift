@@ -171,6 +171,20 @@ func smtpTransportExtendedCommands() throws {
     #expect(help.text.contains("VRFY") == true)
 }
 
+@Test("SMTP transport VRFY error response")
+func smtpTransportVrfyErrorResponse() throws {
+    let transport = TestTransport(incoming: [
+        Array("220 Ready\r\n".utf8),
+        Array("550 No such user\r\n".utf8)
+    ])
+    let smtp = SmtpTransport(transport: transport, maxReads: 2)
+    _ = try smtp.connect()
+
+    #expect(throws: SessionError.smtpError(code: 550, message: "No such user")) {
+        _ = try smtp.vrfy("missing")
+    }
+}
+
 @available(macOS 10.15, iOS 13.0, *)
 @Test("Async SMTP transport send chunked")
 func asyncSmtpTransportSendChunked() async throws {
@@ -246,6 +260,26 @@ func asyncSmtpTransportExtendedCommands() async throws {
     await transport.yieldIncoming(Array("214-Commands:\r\n214 VRFY EXPN HELP\r\n".utf8))
     let help = try await helpTask.value
     #expect(help.text.contains("VRFY") == true)
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async SMTP transport VRFY error response")
+func asyncSmtpTransportVrfyErrorResponse() async throws {
+    let transport = AsyncStreamTransport()
+    let smtp = AsyncSmtpTransport(transport: transport)
+
+    let connectTask = Task { try await smtp.connect() }
+    await transport.yieldIncoming(Array("220 Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let vrfyTask = Task { try await smtp.vrfy("missing") }
+    await transport.yieldIncoming(Array("550 No such user\r\n".utf8))
+    do {
+        _ = try await vrfyTask.value
+        #expect(Bool(false))
+    } catch {
+        #expect(error as? SessionError == .smtpError(code: 550, message: "No such user"))
+    }
 }
 
 @available(macOS 10.15, iOS 13.0, *)

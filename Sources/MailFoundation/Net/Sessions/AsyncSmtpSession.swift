@@ -36,22 +36,22 @@ public actor AsyncSmtpSession {
 
     public func helo(domain: String) async throws -> SmtpResponse? {
         _ = try await client.send(.helo(domain))
-        return await client.waitForResponse()
+        return try requireSuccess(await client.waitForResponse())
     }
 
     public func noop() async throws -> SmtpResponse? {
         _ = try await client.send(.noop)
-        return await client.waitForResponse()
+        return try requireSuccess(await client.waitForResponse())
     }
 
     public func rset() async throws -> SmtpResponse? {
         _ = try await client.send(.rset)
-        return await client.waitForResponse()
+        return try requireSuccess(await client.waitForResponse())
     }
 
     public func vrfy(_ argument: String) async throws -> SmtpResponse? {
         _ = try await client.send(.vrfy(argument))
-        return await client.waitForResponse()
+        return try requireSuccess(await client.waitForResponse())
     }
 
     public func vrfyResult(_ argument: String) async throws -> SmtpVrfyResult {
@@ -63,7 +63,7 @@ public actor AsyncSmtpSession {
 
     public func expn(_ argument: String) async throws -> SmtpResponse? {
         _ = try await client.send(.expn(argument))
-        return await client.waitForResponse()
+        return try requireSuccess(await client.waitForResponse())
     }
 
     public func expnResult(_ argument: String) async throws -> SmtpExpnResult {
@@ -75,7 +75,7 @@ public actor AsyncSmtpSession {
 
     public func help(_ argument: String? = nil) async throws -> SmtpResponse? {
         _ = try await client.send(.help(argument))
-        return await client.waitForResponse()
+        return try requireSuccess(await client.waitForResponse())
     }
 
     public func helpResult(_ argument: String? = nil) async throws -> SmtpHelpResult {
@@ -83,6 +83,16 @@ public actor AsyncSmtpSession {
             throw SessionError.timeout
         }
         return SmtpHelpResult(response: response)
+    }
+
+    private func requireSuccess(_ response: SmtpResponse?) throws -> SmtpResponse {
+        guard let response else {
+            throw SessionError.timeout
+        }
+        guard response.isSuccess else {
+            throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        }
+        return response
     }
 
     public func mailFrom(_ address: String) async throws -> SmtpResponse? {
