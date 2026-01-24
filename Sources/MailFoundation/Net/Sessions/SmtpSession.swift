@@ -43,7 +43,7 @@ public final class SmtpSession {
         if let capabilities = client.handleEhloResponse(response) {
             return capabilities
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func helo(domain: String) throws -> SmtpResponse {
@@ -55,7 +55,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func noop() throws -> SmtpResponse {
@@ -67,7 +67,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func rset() throws -> SmtpResponse {
@@ -79,7 +79,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func vrfy(_ argument: String) throws -> SmtpResponse {
@@ -91,7 +91,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func vrfyResult(_ argument: String) throws -> SmtpVrfyResult {
@@ -108,7 +108,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func expnResult(_ argument: String) throws -> SmtpExpnResult {
@@ -125,7 +125,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func helpResult(_ argument: String? = nil) throws -> SmtpHelpResult {
@@ -142,7 +142,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func mailFrom(_ address: String, parameters: SmtpMailFromParameters) throws -> SmtpResponse {
@@ -154,7 +154,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func rcptTo(_ address: String) throws -> SmtpResponse {
@@ -166,7 +166,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func rcptTo(_ address: String, parameters: SmtpRcptToParameters) throws -> SmtpResponse {
@@ -178,7 +178,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func sendData(_ message: [UInt8]) throws -> SmtpResponse {
@@ -187,7 +187,7 @@ public final class SmtpSession {
             if response.isSuccess {
                 return response
             }
-            throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+            throw smtpError(from: response)
         }
         throw SessionError.timeout
     }
@@ -201,7 +201,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func authenticate(
@@ -229,7 +229,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func sendMail(from: String, to recipients: [String], data: [UInt8]) throws -> SmtpResponse {
@@ -239,7 +239,7 @@ public final class SmtpSession {
             throw SessionError.timeout
         }
         guard mailResponse.isSuccess else {
-            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+            throw smtpError(from: mailResponse)
         }
 
         for recipient in recipients {
@@ -249,7 +249,7 @@ public final class SmtpSession {
                 throw SessionError.timeout
             }
             guard rcptResponse.isSuccess else {
-                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+                throw smtpError(from: rcptResponse)
             }
         }
 
@@ -258,7 +258,7 @@ public final class SmtpSession {
             if dataResponse.isSuccess {
                 return dataResponse
             }
-            throw SessionError.smtpError(code: dataResponse.code, message: dataResponse.lines.joined(separator: " "))
+            throw smtpError(from: dataResponse)
         }
         throw SessionError.timeout
     }
@@ -280,7 +280,7 @@ public final class SmtpSession {
             throw SessionError.timeout
         }
         guard mailResponse.isSuccess else {
-            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+            throw smtpError(from: mailResponse)
         }
 
         for recipient in recipients {
@@ -294,7 +294,7 @@ public final class SmtpSession {
                 throw SessionError.timeout
             }
             guard rcptResponse.isSuccess else {
-                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+                throw smtpError(from: rcptResponse)
             }
         }
 
@@ -303,7 +303,7 @@ public final class SmtpSession {
             if dataResponse.isSuccess {
                 return dataResponse
             }
-            throw SessionError.smtpError(code: dataResponse.code, message: dataResponse.lines.joined(separator: " "))
+            throw smtpError(from: dataResponse)
         }
         throw SessionError.timeout
     }
@@ -335,7 +335,7 @@ public final class SmtpSession {
             throw SessionError.timeout
         }
         guard mailResponse.isSuccess else {
-            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+            throw smtpError(from: mailResponse)
         }
 
         for _ in recipients {
@@ -343,7 +343,7 @@ public final class SmtpSession {
                 throw SessionError.timeout
             }
             guard rcptResponse.isSuccess else {
-                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+                throw smtpError(from: rcptResponse)
             }
         }
 
@@ -352,7 +352,7 @@ public final class SmtpSession {
             if dataResponse.isSuccess {
                 return dataResponse
             }
-            throw SessionError.smtpError(code: dataResponse.code, message: dataResponse.lines.joined(separator: " "))
+            throw smtpError(from: dataResponse)
         }
         throw SessionError.timeout
     }
@@ -366,7 +366,7 @@ public final class SmtpSession {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+            throw smtpError(from: response)
         }
         return response
     }
@@ -390,7 +390,7 @@ public final class SmtpSession {
             throw SessionError.timeout
         }
         guard mailResponse.isSuccess else {
-            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+            throw smtpError(from: mailResponse)
         }
 
         for recipient in recipients {
@@ -404,7 +404,7 @@ public final class SmtpSession {
                 throw SessionError.timeout
             }
             guard rcptResponse.isSuccess else {
-                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+                throw smtpError(from: rcptResponse)
             }
         }
 
@@ -432,7 +432,7 @@ public final class SmtpSession {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+            throw smtpError(from: response)
         }
         tlsTransport.startTLS(validateCertificate: validateCertificate)
         return response
@@ -447,7 +447,15 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
+    }
+
+    private func smtpError(from response: SmtpResponse) -> SessionError {
+        SessionError.smtpError(
+            code: response.code,
+            message: response.lines.joined(separator: " "),
+            enhancedStatusCode: response.enhancedStatusCode
+        )
     }
 
     private func ensureWrite() throws {

@@ -39,12 +39,22 @@ func smtpResponseDecoderMixedReplyCodes() {
     #expect(responses.first?.lines == ["HELP"])
 }
 
-@Test("SMTP response decoder skips malformed lines")
+@Test("SMTP response decoder drops pending multiline on malformed line")
 func smtpResponseDecoderSkipsMalformedLines() {
     var decoder = SmtpResponseDecoder()
     let bytes = Array("250-PIPELINING\r\n25X bad\r\n250 OK\r\n".utf8)
     let responses = decoder.append(bytes)
     #expect(responses.count == 1)
     #expect(responses.first?.code == 250)
-    #expect(responses.first?.lines == ["PIPELINING", "OK"])
+    #expect(responses.first?.lines == ["OK"])
+}
+
+@Test("SMTP response decoder resets pending on malformed short line")
+func smtpResponseDecoderMalformedShortLine() {
+    var decoder = SmtpResponseDecoder()
+    let bytes = Array("250-PIPELINING\r\nBAD\r\n250 OK\r\n".utf8)
+    let responses = decoder.append(bytes)
+    #expect(responses.count == 1)
+    #expect(responses.first?.code == 250)
+    #expect(responses.first?.lines == ["OK"])
 }

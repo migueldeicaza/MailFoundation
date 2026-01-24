@@ -29,6 +29,7 @@ public struct SmtpResponseParser: Sendable {
 
     public mutating func parseLine(_ line: String) -> SmtpResponse? {
         guard line.count >= 4 else {
+            resetPendingIfNeeded()
             return nil
         }
 
@@ -36,11 +37,13 @@ public struct SmtpResponseParser: Sendable {
         let codeEnd = line.index(codeStart, offsetBy: 3)
         let codeText = String(line[codeStart..<codeEnd])
         guard let code = Int(codeText) else {
+            resetPendingIfNeeded()
             return nil
         }
 
         let separatorIndex = codeEnd
         guard separatorIndex < line.endIndex else {
+            resetPendingIfNeeded()
             return nil
         }
         let remainderStart = line.index(after: separatorIndex)
@@ -66,5 +69,11 @@ public struct SmtpResponseParser: Sendable {
         pendingCode = nil
         pendingLines.removeAll(keepingCapacity: true)
         return response
+    }
+
+    private mutating func resetPendingIfNeeded() {
+        guard pendingCode != nil else { return }
+        pendingCode = nil
+        pendingLines.removeAll(keepingCapacity: true)
     }
 }

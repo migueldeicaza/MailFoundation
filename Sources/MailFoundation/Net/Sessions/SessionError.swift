@@ -10,7 +10,7 @@ public enum SessionError: Error, Sendable, Equatable {
     case invalidState(expected: MailServiceState, actual: MailServiceState)
     case invalidImapState(expected: ImapSessionState, actual: ImapSessionState)
     case startTlsNotSupported
-    case smtpError(code: Int, message: String)
+    case smtpError(code: Int, message: String, enhancedStatusCode: SmtpEnhancedStatusCode?)
     case pop3Error(message: String)
     case imapError(status: ImapResponseStatus?, text: String)
 }

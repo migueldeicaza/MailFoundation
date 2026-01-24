@@ -90,7 +90,7 @@ public actor AsyncSmtpSession {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+            throw smtpError(from: response)
         }
         return response
     }
@@ -146,7 +146,7 @@ public actor AsyncSmtpSession {
         if response.isSuccess {
             return response
         }
-        throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+        throw smtpError(from: response)
     }
 
     public func sendData(_ message: [UInt8]) async throws -> SmtpResponse? {
@@ -159,7 +159,7 @@ public actor AsyncSmtpSession {
             throw SessionError.timeout
         }
         guard mailResponse.isSuccess else {
-            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+            throw smtpError(from: mailResponse)
         }
 
         for recipient in recipients {
@@ -168,7 +168,7 @@ public actor AsyncSmtpSession {
                 throw SessionError.timeout
             }
             guard rcptResponse.isSuccess else {
-                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+                throw smtpError(from: rcptResponse)
             }
         }
 
@@ -176,7 +176,7 @@ public actor AsyncSmtpSession {
             if response.isSuccess {
                 return response
             }
-            throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+            throw smtpError(from: response)
         }
 
         throw SessionError.timeout
@@ -198,7 +198,7 @@ public actor AsyncSmtpSession {
             throw SessionError.timeout
         }
         guard mailResponse.isSuccess else {
-            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+            throw smtpError(from: mailResponse)
         }
 
         for recipient in recipients {
@@ -211,7 +211,7 @@ public actor AsyncSmtpSession {
                 throw SessionError.timeout
             }
             guard rcptResponse.isSuccess else {
-                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+                throw smtpError(from: rcptResponse)
             }
         }
 
@@ -219,7 +219,7 @@ public actor AsyncSmtpSession {
             if response.isSuccess {
                 return response
             }
-            throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+            throw smtpError(from: response)
         }
 
         throw SessionError.timeout
@@ -250,7 +250,7 @@ public actor AsyncSmtpSession {
             throw SessionError.timeout
         }
         guard mailResponse.isSuccess else {
-            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+            throw smtpError(from: mailResponse)
         }
 
         for _ in recipients {
@@ -258,7 +258,7 @@ public actor AsyncSmtpSession {
                 throw SessionError.timeout
             }
             guard rcptResponse.isSuccess else {
-                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+                throw smtpError(from: rcptResponse)
             }
         }
 
@@ -266,7 +266,7 @@ public actor AsyncSmtpSession {
             if dataResponse.isSuccess {
                 return dataResponse
             }
-            throw SessionError.smtpError(code: dataResponse.code, message: dataResponse.lines.joined(separator: " "))
+            throw smtpError(from: dataResponse)
         }
 
         throw SessionError.timeout
@@ -279,7 +279,7 @@ public actor AsyncSmtpSession {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+            throw smtpError(from: response)
         }
         return response
     }
@@ -302,7 +302,7 @@ public actor AsyncSmtpSession {
             throw SessionError.timeout
         }
         guard mailResponse.isSuccess else {
-            throw SessionError.smtpError(code: mailResponse.code, message: mailResponse.lines.joined(separator: " "))
+            throw smtpError(from: mailResponse)
         }
 
         for recipient in recipients {
@@ -315,7 +315,7 @@ public actor AsyncSmtpSession {
                 throw SessionError.timeout
             }
             guard rcptResponse.isSuccess else {
-                throw SessionError.smtpError(code: rcptResponse.code, message: rcptResponse.lines.joined(separator: " "))
+                throw smtpError(from: rcptResponse)
             }
         }
 
@@ -342,7 +342,7 @@ public actor AsyncSmtpSession {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.smtpError(code: response.code, message: response.lines.joined(separator: " "))
+            throw smtpError(from: response)
         }
         try await tlsTransport.startTLS(validateCertificate: validateCertificate)
         return response
@@ -355,6 +355,14 @@ public actor AsyncSmtpSession {
 
     public func capabilities() async -> SmtpCapabilities? {
         await client.capabilities
+    }
+
+    private func smtpError(from response: SmtpResponse) -> SessionError {
+        SessionError.smtpError(
+            code: response.code,
+            message: response.lines.joined(separator: " "),
+            enhancedStatusCode: response.enhancedStatusCode
+        )
     }
 }
 
