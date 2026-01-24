@@ -81,6 +81,16 @@ public protocol ProxyClient: AnyObject {
     func connect(to host: String, port: Int) throws
 }
 
+public struct MessageSentEvent: Sendable {
+    public let message: MimeMessage
+    public let response: String
+
+    public init(message: MimeMessage, response: String) {
+        self.message = message
+        self.response = response
+    }
+}
+
 open class MailServiceBase<Response>: MailService {
     public typealias ConnectResponse = Response
 
@@ -140,16 +150,6 @@ open class MailServiceBase<Response>: MailService {
 }
 
 open class MailTransportBase<Response>: MailServiceBase<Response> {
-    public struct MessageSentEvent: Sendable {
-        public let message: MimeMessage
-        public let response: String
-
-        public init(message: MimeMessage, response: String) {
-            self.message = message
-            self.response = response
-        }
-    }
-
     public typealias MessageSentHandler = @Sendable (MessageSentEvent) -> Void
 
     private var messageSentHandlers: [MessageSentHandler] = []

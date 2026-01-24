@@ -12,6 +12,8 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
     private let session: AsyncSmtpSession
     private var storedCapabilities: SmtpCapabilities?
     private var authenticationMechanisms: Set<String> = []
+    public typealias MessageSentHandler = @Sendable (MessageSentEvent) async -> Void
+    private var messageSentHandlers: [MessageSentHandler] = []
 
     public static func make(
         host: String,
@@ -49,6 +51,14 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
 
     public func disconnect() async {
         await session.disconnect()
+    }
+
+    public func addMessageSentHandler(_ handler: @escaping MessageSentHandler) {
+        messageSentHandlers.append(handler)
+    }
+
+    public func removeAllMessageSentHandlers() {
+        messageSentHandlers.removeAll()
     }
 
     public func ehlo(domain: String) async throws -> SmtpCapabilities? {
@@ -90,13 +100,15 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
     ) async throws -> SmtpResponse {
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
         let mailParameters = resolveMailParameters(nil, data: envelope.data)
-        return try await session.sendMail(
+        let response = try await session.sendMail(
             from: envelope.sender.address,
             to: envelope.recipients.map { $0.address },
             data: envelope.data,
             mailParameters: mailParameters,
             rcptParameters: nil
         )
+        await notifyMessageSent(message: message, response: response.lines.joined(separator: " "))
+        return response
     }
 
     public func send(
@@ -108,13 +120,15 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
     ) async throws -> SmtpResponse {
         let data = try MailTransportEnvelopeBuilder.encodeMessage(message, options: options, progress: progress)
         let mailParameters = resolveMailParameters(nil, data: data)
-        return try await session.sendMail(
+        let response = try await session.sendMail(
             from: sender.address,
             to: recipients.map { $0.address },
             data: data,
             mailParameters: mailParameters,
             rcptParameters: nil
         )
+        await notifyMessageSent(message: message, response: response.lines.joined(separator: " "))
+        return response
     }
 
     public func sendChunked(
@@ -128,7 +142,7 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
         let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data)
         if supportsCapability("CHUNKING") {
-            return try await session.sendMailChunked(
+            let response = try await session.sendMailChunked(
                 from: envelope.sender.address,
                 to: envelope.recipients.map { $0.address },
                 data: envelope.data,
@@ -136,14 +150,18 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
                 mailParameters: resolvedMailParameters,
                 rcptParameters: rcptParameters
             )
+            await notifyMessageSent(message: message, response: response.lines.joined(separator: " "))
+            return response
         }
-        return try await session.sendMail(
+        let response = try await session.sendMail(
             from: envelope.sender.address,
             to: envelope.recipients.map { $0.address },
             data: envelope.data,
             mailParameters: resolvedMailParameters,
             rcptParameters: rcptParameters
         )
+        await notifyMessageSent(message: message, response: response.lines.joined(separator: " "))
+        return response
     }
 
     public func sendPipelined(
@@ -156,21 +174,25 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
         let envelope = try MailTransportEnvelopeBuilder.build(for: message, options: options, progress: progress)
         let resolvedMailParameters = resolveMailParameters(mailParameters, data: envelope.data)
         if supportsCapability("PIPELINING") {
-            return try await session.sendMailPipelined(
+            let response = try await session.sendMailPipelined(
                 from: envelope.sender.address,
                 to: envelope.recipients.map { $0.address },
                 data: envelope.data,
                 mailParameters: resolvedMailParameters,
                 rcptParameters: rcptParameters
             )
+            await notifyMessageSent(message: message, response: response.lines.joined(separator: " "))
+            return response
         }
-        return try await session.sendMail(
+        let response = try await session.sendMail(
             from: envelope.sender.address,
             to: envelope.recipients.map { $0.address },
             data: envelope.data,
             mailParameters: resolvedMailParameters,
             rcptParameters: rcptParameters
         )
+        await notifyMessageSent(message: message, response: response.lines.joined(separator: " "))
+        return response
     }
 
     public func sendMessage(from: String, to recipients: [String], data: [UInt8]) async throws {
@@ -224,5 +246,13 @@ public actor AsyncSmtpTransport: AsyncMailTransport {
 
     private func dataContainsNonAscii(_ data: [UInt8]) -> Bool {
         data.contains { $0 > 0x7f }
+    }
+
+    private func notifyMessageSent(message: MimeMessage, response: String) async {
+        guard !messageSentHandlers.isEmpty else { return }
+        let event = MessageSentEvent(message: message, response: response)
+        for handler in messageSentHandlers {
+            await handler(event)
+        }
     }
 }
