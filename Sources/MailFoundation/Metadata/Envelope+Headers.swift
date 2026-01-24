@@ -62,7 +62,7 @@ public extension Envelope {
                 inReplyTo = MessageIdList.parseAll(value).last ?? value
             }
         case "list-id":
-            listId = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            listId = normalizeListId(value)
         case "list-archive":
             listArchive = value.trimmingCharacters(in: .whitespacesAndNewlines)
         case "list-help":
@@ -82,6 +82,18 @@ public extension Envelope {
         default:
             break
         }
+    }
+
+    private func normalizeListId(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let start = trimmed.firstIndex(of: "<"),
+              let end = trimmed[start...].firstIndex(of: ">"),
+              end > start else {
+            return trimmed
+        }
+        let innerStart = trimmed.index(after: start)
+        let inner = trimmed[innerStart..<end].trimmingCharacters(in: .whitespacesAndNewlines)
+        return inner.isEmpty ? trimmed : String(inner)
     }
 
     private func replaceAddressList(_ list: InternetAddressList, with newList: InternetAddressList?) {

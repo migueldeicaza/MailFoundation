@@ -38,13 +38,57 @@ public struct MessageIdList: Sendable, Equatable, CustomStringConvertible {
             startIndex = value.index(after: end)
         }
 
-        if results.isEmpty {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                results.append(trimmed)
-            }
+        if !results.isEmpty {
+            return results
         }
 
-        return results
+        var tokens: [String] = []
+        var current = ""
+        var commentDepth = 0
+
+        for ch in value {
+            if ch == "(" {
+                commentDepth += 1
+                continue
+            }
+            if ch == ")" {
+                if commentDepth > 0 {
+                    commentDepth -= 1
+                    continue
+                }
+            }
+            if commentDepth > 0 {
+                continue
+            }
+
+            if ch == "," || ch.isWhitespace {
+                if !current.isEmpty {
+                    tokens.append(current)
+                    current = ""
+                }
+                continue
+            }
+
+            current.append(ch)
+        }
+
+        if !current.isEmpty {
+            tokens.append(current)
+        }
+
+        let cleaned = tokens
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if !cleaned.isEmpty {
+            return cleaned
+        }
+
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            return [trimmed]
+        }
+
+        return []
     }
 }

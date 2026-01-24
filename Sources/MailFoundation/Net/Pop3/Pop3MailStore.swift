@@ -4,6 +4,8 @@
 // POP3 mail store and inbox folder wrapper.
 //
 
+import SwiftMimeKit
+
 public enum Pop3FolderError: Error, Sendable {
     case unsupportedFolder
     case unsupportedAccess
@@ -125,6 +127,10 @@ public final class Pop3Folder: MailFolderBase {
         try session.retrData(index)
     }
 
+    public func message(_ index: Int, options: ParserOptions = .default) throws -> MimeMessage {
+        try retrData(index).message(options: options)
+    }
+
     public func retrRaw(_ index: Int) throws -> [UInt8] {
         try session.retrRaw(index)
     }
@@ -139,6 +145,10 @@ public final class Pop3Folder: MailFolderBase {
 
     public func topData(_ index: Int, lines: Int) throws -> Pop3MessageData {
         try session.topData(index, lines: lines)
+    }
+
+    public func topHeaders(_ index: Int, lines: Int) throws -> HeaderList {
+        try topData(index, lines: lines).parseHeaders()
     }
 
     public func topRaw(_ index: Int, lines: Int) throws -> [UInt8] {

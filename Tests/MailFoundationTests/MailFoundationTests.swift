@@ -658,7 +658,7 @@ func envelopeApplyHeaders() {
     #expect(from?.address == "alice@example.com")
     #expect(envelope.messageId == "<msgid@example.com>")
     #expect(envelope.inReplyTo == "<reply@example.com>")
-    #expect(envelope.listId == "Example List <list.example.com>")
+    #expect(envelope.listId == "list.example.com")
     #expect(envelope.listUnsubscribe == "<mailto:unsubscribe@example.com>")
     #expect(envelope.dkimSignatures.count == 2)
     #expect(envelope.authenticationResults.first == "mx.example.com; spf=pass")

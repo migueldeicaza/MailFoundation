@@ -4,6 +4,8 @@
 // Async POP3 mail store and inbox folder wrapper.
 //
 
+import SwiftMimeKit
+
 @available(macOS 10.15, iOS 13.0, *)
 public actor AsyncPop3MailStore: AsyncMailStore {
     public typealias FolderType = AsyncPop3Folder
@@ -156,6 +158,10 @@ public actor AsyncPop3Folder: AsyncMailFolder {
         try await session.retrData(index)
     }
 
+    public func message(_ index: Int, options: ParserOptions = .default) async throws -> MimeMessage {
+        try await retrData(index).message(options: options)
+    }
+
     public func retrRaw(_ index: Int) async throws -> [UInt8] {
         try await session.retrRaw(index)
     }
@@ -173,6 +179,10 @@ public actor AsyncPop3Folder: AsyncMailFolder {
 
     public func topData(_ index: Int, lines: Int) async throws -> Pop3MessageData {
         try await session.topData(index, lines: lines)
+    }
+
+    public func topHeaders(_ index: Int, lines: Int) async throws -> HeaderList {
+        try await topData(index, lines: lines).parseHeaders()
     }
 
     public func topRaw(_ index: Int, lines: Int) async throws -> [UInt8] {
