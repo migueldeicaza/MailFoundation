@@ -519,6 +519,122 @@ public final class ImapSession {
         try fetch(set, items: request.imapItemList)
     }
 
+    public func copy(_ set: String, to mailbox: String) throws -> ImapCopyResult {
+        try ensureSelected()
+        let command = client.send(.copy(set, mailbox))
+        try ensureWrite()
+        var reads = 0
+
+        while reads < maxReads {
+            let messages = client.receiveWithLiterals()
+            if messages.isEmpty {
+                reads += 1
+                continue
+            }
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    let copyUid = ImapResponseCode.copyUid(from: response.text)
+                    return ImapCopyResult(response: response, copyUid: copyUid)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func copy(_ set: SequenceSet, to mailbox: String) throws -> ImapCopyResult {
+        try copy(set.description, to: mailbox)
+    }
+
+    public func uidCopy(_ set: UniqueIdSet, to mailbox: String) throws -> ImapCopyResult {
+        try ensureSelected()
+        let command = client.send(.uidCopy(set.description, mailbox))
+        try ensureWrite()
+        var reads = 0
+
+        while reads < maxReads {
+            let messages = client.receiveWithLiterals()
+            if messages.isEmpty {
+                reads += 1
+                continue
+            }
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    let copyUid = ImapResponseCode.copyUid(from: response.text)
+                    return ImapCopyResult(response: response, copyUid: copyUid)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func move(_ set: String, to mailbox: String) throws -> ImapCopyResult {
+        try ensureSelected()
+        let command = client.send(.move(set, mailbox))
+        try ensureWrite()
+        var reads = 0
+
+        while reads < maxReads {
+            let messages = client.receiveWithLiterals()
+            if messages.isEmpty {
+                reads += 1
+                continue
+            }
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    let copyUid = ImapResponseCode.copyUid(from: response.text)
+                    return ImapCopyResult(response: response, copyUid: copyUid)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func move(_ set: SequenceSet, to mailbox: String) throws -> ImapCopyResult {
+        try move(set.description, to: mailbox)
+    }
+
+    public func uidMove(_ set: UniqueIdSet, to mailbox: String) throws -> ImapCopyResult {
+        try ensureSelected()
+        let command = client.send(.uidMove(set.description, mailbox))
+        try ensureWrite()
+        var reads = 0
+
+        while reads < maxReads {
+            let messages = client.receiveWithLiterals()
+            if messages.isEmpty {
+                reads += 1
+                continue
+            }
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    let copyUid = ImapResponseCode.copyUid(from: response.text)
+                    return ImapCopyResult(response: response, copyUid: copyUid)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
     public func fetchSummaries(_ set: String, request: FetchRequest, previewLength: Int = 512) throws -> [MessageSummary] {
         let needsBodies = request.items.contains(.headers) || request.items.contains(.references) || request.items.contains(.previewText)
         let itemList = request.items.contains(.previewText)

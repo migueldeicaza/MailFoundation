@@ -157,6 +157,30 @@ public final class ImapMailStore: MailServiceBase<ImapResponse>, MailStore {
         try requireSelectedFolder().uidSort(orderBy, query: query, charset: charset)
     }
 
+    public func copy(_ set: String, to mailbox: String) throws -> ImapCopyResult {
+        try requireSelectedFolder().copy(set, to: mailbox)
+    }
+
+    public func copy(_ set: SequenceSet, to mailbox: String) throws -> ImapCopyResult {
+        try requireSelectedFolder().copy(set, to: mailbox)
+    }
+
+    public func uidCopy(_ set: UniqueIdSet, to mailbox: String) throws -> ImapCopyResult {
+        try requireSelectedFolder().uidCopy(set, to: mailbox)
+    }
+
+    public func move(_ set: String, to mailbox: String) throws -> ImapCopyResult {
+        try requireSelectedFolder().move(set, to: mailbox)
+    }
+
+    public func move(_ set: SequenceSet, to mailbox: String) throws -> ImapCopyResult {
+        try requireSelectedFolder().move(set, to: mailbox)
+    }
+
+    public func uidMove(_ set: UniqueIdSet, to mailbox: String) throws -> ImapCopyResult {
+        try requireSelectedFolder().uidMove(set, to: mailbox)
+    }
+
     public func fetchSummaries(_ set: String, request: FetchRequest, previewLength: Int = 512) throws -> [MessageSummary] {
         try requireSelectedFolder().fetchSummaries(set, request: request, previewLength: previewLength)
     }
@@ -332,6 +356,30 @@ public final class ImapFolder: MailFolderBase {
 
     public func uidSort(_ orderBy: [OrderBy], query: SearchQuery, charset: String = "UTF-8") throws -> ImapSearchResponse {
         try session.uidSort(orderBy, query: query, charset: charset)
+    }
+
+    public func copy(_ set: String, to mailbox: String) throws -> ImapCopyResult {
+        try session.copy(set, to: mailbox)
+    }
+
+    public func copy(_ set: SequenceSet, to mailbox: String) throws -> ImapCopyResult {
+        try session.copy(set, to: mailbox)
+    }
+
+    public func uidCopy(_ set: UniqueIdSet, to mailbox: String) throws -> ImapCopyResult {
+        try session.uidCopy(set, to: mailbox)
+    }
+
+    public func move(_ set: String, to mailbox: String) throws -> ImapCopyResult {
+        try session.move(set, to: mailbox)
+    }
+
+    public func move(_ set: SequenceSet, to mailbox: String) throws -> ImapCopyResult {
+        try session.move(set, to: mailbox)
+    }
+
+    public func uidMove(_ set: UniqueIdSet, to mailbox: String) throws -> ImapCopyResult {
+        try session.uidMove(set, to: mailbox)
     }
 
     public func sortIdSet(

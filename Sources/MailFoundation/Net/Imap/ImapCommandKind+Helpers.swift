@@ -21,6 +21,22 @@ public extension ImapCommandKind {
         .uidStore(set.description, data)
     }
 
+    static func copy(_ set: SequenceSet, mailbox: String) -> ImapCommandKind {
+        .copy(set.description, mailbox)
+    }
+
+    static func uidCopy(_ set: UniqueIdSet, mailbox: String) -> ImapCommandKind {
+        .uidCopy(set.description, mailbox)
+    }
+
+    static func move(_ set: SequenceSet, mailbox: String) -> ImapCommandKind {
+        .move(set.description, mailbox)
+    }
+
+    static func uidMove(_ set: UniqueIdSet, mailbox: String) -> ImapCommandKind {
+        .uidMove(set.description, mailbox)
+    }
+
     static func search(_ query: SearchQuery) -> ImapCommandKind {
         .search(query.serialize())
     }

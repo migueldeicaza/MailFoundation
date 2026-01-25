@@ -22,7 +22,7 @@ public final class Pop3Session {
             throw SessionError.timeout
         }
         guard greeting.isSuccess else {
-            throw SessionError.pop3Error(message: greeting.message)
+            throw pop3CommandError(from: greeting)
         }
         return greeting
     }
@@ -39,7 +39,7 @@ public final class Pop3Session {
             throw SessionError.timeout
         }
         guard userResponse.isSuccess else {
-            throw SessionError.pop3Error(message: userResponse.message)
+            throw pop3CommandError(from: userResponse)
         }
 
         _ = client.send(.pass(password))
@@ -48,7 +48,7 @@ public final class Pop3Session {
             throw SessionError.timeout
         }
         guard passResponse.isSuccess else {
-            throw SessionError.pop3Error(message: passResponse.message)
+            throw pop3CommandError(from: passResponse)
         }
 
         return (user: userResponse, pass: passResponse)
@@ -62,12 +62,12 @@ public final class Pop3Session {
         let event = try waitForMultilineEvent()
         if case let .multiline(response, lines) = event {
             guard response.isSuccess else {
-                throw SessionError.pop3Error(message: response.message)
+                throw pop3CommandError(from: response)
             }
             return Pop3Capabilities(rawLines: lines)
         }
         if case let .single(response) = event {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         throw SessionError.timeout
     }
@@ -79,7 +79,7 @@ public final class Pop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return response
     }
@@ -91,7 +91,7 @@ public final class Pop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return response
     }
@@ -118,7 +118,7 @@ public final class Pop3Session {
         }
 
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return response
     }
@@ -131,7 +131,7 @@ public final class Pop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return response
     }
@@ -144,7 +144,7 @@ public final class Pop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return response
     }
@@ -157,7 +157,7 @@ public final class Pop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return response
     }
@@ -170,12 +170,12 @@ public final class Pop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         if let item = Pop3ListItem.parseLine(response.message) {
             return item
         }
-        throw SessionError.pop3Error(message: response.message)
+        throw pop3CommandError(from: response)
     }
 
     public func uidl(_ index: Int) throws -> Pop3UidlItem {
@@ -186,12 +186,12 @@ public final class Pop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         if let item = Pop3UidlItem.parseLine(response.message) {
             return item
         }
-        throw SessionError.pop3Error(message: response.message)
+        throw pop3CommandError(from: response)
     }
 
     public func retr(_ index: Int) throws -> [String] {
@@ -202,12 +202,12 @@ public final class Pop3Session {
         let event = try waitForMultilineEvent()
         if case let .multiline(response, lines) = event {
             guard response.isSuccess else {
-                throw SessionError.pop3Error(message: response.message)
+                throw pop3CommandError(from: response)
             }
             return lines
         }
         if case let .single(response) = event {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         throw SessionError.timeout
     }
@@ -242,12 +242,12 @@ public final class Pop3Session {
         let event = try waitForMultilineEvent()
         if case let .multiline(response, lines) = event {
             guard response.isSuccess else {
-                throw SessionError.pop3Error(message: response.message)
+                throw pop3CommandError(from: response)
             }
             return lines
         }
         if case let .single(response) = event {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         throw SessionError.timeout
     }
@@ -282,12 +282,12 @@ public final class Pop3Session {
         let event = try waitForMultilineEvent()
         if case let .multiline(response, lines) = event {
             guard response.isSuccess else {
-                throw SessionError.pop3Error(message: response.message)
+                throw pop3CommandError(from: response)
             }
             return Pop3ListParser.parse(lines)
         }
         if case let .single(response) = event {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         throw SessionError.timeout
     }
@@ -300,12 +300,12 @@ public final class Pop3Session {
         let event = try waitForMultilineEvent()
         if case let .multiline(response, lines) = event {
             guard response.isSuccess else {
-                throw SessionError.pop3Error(message: response.message)
+                throw pop3CommandError(from: response)
             }
             return Pop3UidlParser.parse(lines)
         }
         if case let .single(response) = event {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         throw SessionError.timeout
     }
@@ -320,7 +320,7 @@ public final class Pop3Session {
         if let stat = Pop3StatResponse.parse(response) {
             return stat
         }
-        throw SessionError.pop3Error(message: response.message)
+        throw pop3CommandError(from: response)
     }
 
     public func last() throws -> Int {
@@ -331,7 +331,7 @@ public final class Pop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess, let value = Int(response.message) else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return value
     }
@@ -356,7 +356,7 @@ public final class Pop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         tlsTransport.startTLS(validateCertificate: validateCertificate)
         return response
@@ -389,10 +389,10 @@ public final class Pop3Session {
             for event in events {
                 switch event {
                 case let .single(response):
-                    throw SessionError.pop3Error(message: response.message)
+                    throw pop3CommandError(from: response)
                 case let .multiline(response, data):
                     guard response.isSuccess else {
-                        throw SessionError.pop3Error(message: response.message)
+                        throw pop3CommandError(from: response)
                     }
                     return (response, data)
                 }
@@ -428,7 +428,7 @@ public final class Pop3Session {
                             awaitingStatus = false
                             continue
                         }
-                        throw SessionError.pop3Error(message: response.message)
+                        throw pop3CommandError(from: response)
                     }
                     continue
                 }
@@ -462,6 +462,10 @@ public final class Pop3Session {
         if !client.lastWriteSucceeded {
             throw SessionError.transportWriteFailed
         }
+    }
+
+    private func pop3CommandError(from response: Pop3Response) -> Pop3CommandError {
+        Pop3CommandError(statusText: response.message)
     }
 
     private func ensureAuthenticated() throws {

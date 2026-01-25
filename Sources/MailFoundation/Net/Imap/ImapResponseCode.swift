@@ -8,6 +8,7 @@ public enum ImapResponseCodeKind: Sendable, Equatable {
     case uidNext(UInt32)
     case uidValidity(UInt32)
     case highestModSeq(UInt64)
+    case copyUid(ImapCopyUid)
 }
 
 public struct ImapResponseCode: Sendable, Equatable {
@@ -48,8 +49,34 @@ public struct ImapResponseCode: Sendable, Equatable {
             if let number = UInt64(value) {
                 return ImapResponseCode(kind: .highestModSeq(number))
             }
+        case "COPYUID":
+            if let number = UInt32(value) {
+                let sourceToken = tokens.count > 2 ? String(tokens[2]) : nil
+                let destinationToken = tokens.count > 3 ? String(tokens[3]) : nil
+                let source = sourceToken.flatMap { UniqueIdSet.tryParse($0, validity: number) }
+                let destination = destinationToken.flatMap { UniqueIdSet.tryParse($0, validity: number) }
+                let copyUid = ImapCopyUid(uidValidity: number, source: source, destination: destination)
+                return ImapResponseCode(kind: .copyUid(copyUid))
+            }
         default:
             break
+        }
+        return nil
+    }
+}
+
+public struct ImapCopyUid: Sendable, Equatable {
+    public let uidValidity: UInt32
+    public let source: UniqueIdSet?
+    public let destination: UniqueIdSet?
+}
+
+public extension ImapResponseCode {
+    static func copyUid(from text: String) -> ImapCopyUid? {
+        for code in parseAll(text) {
+            if case let .copyUid(value) = code.kind {
+                return value
+            }
         }
         return nil
     }

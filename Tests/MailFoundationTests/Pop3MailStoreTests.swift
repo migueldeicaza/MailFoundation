@@ -165,8 +165,13 @@ func pop3StoreCommandErrorResponse() throws {
     _ = try store.connect()
     _ = try store.authenticate(user: "user", password: "pass")
 
-    #expect(throws: SessionError.pop3Error(message: "Nope")) {
+    do {
         _ = try store.dele(1)
+        #expect(Bool(false))
+    } catch let error as Pop3CommandError {
+        #expect(error.statusText == "Nope")
+    } catch {
+        #expect(Bool(false))
     }
 }
 
@@ -347,6 +352,10 @@ func asyncPop3StoreCommandErrorResponse() async throws {
         _ = try await deleTask.value
         #expect(Bool(false))
     } catch {
-        #expect(error as? SessionError == .pop3Error(message: "Nope"))
+        if let popError = error as? Pop3CommandError {
+            #expect(popError.statusText == "Nope")
+        } else {
+            #expect(Bool(false))
+        }
     }
 }

@@ -25,10 +25,14 @@ public enum ImapCommandKind: Sendable {
     case expunge
     case fetch(String, String)
     case store(String, String)
+    case copy(String, String)
+    case move(String, String)
     case search(String)
     case sort(String)
     case uidFetch(String, String)
     case uidStore(String, String)
+    case uidCopy(String, String)
+    case uidMove(String, String)
     case uidSearch(String)
     case uidSort(String)
     case enable([String])
@@ -82,6 +86,10 @@ public enum ImapCommandKind: Sendable {
             return ImapCommand(tag: tag, name: "FETCH", arguments: "\(set) \(items)")
         case let .store(set, data):
             return ImapCommand(tag: tag, name: "STORE", arguments: "\(set) \(data)")
+        case let .copy(set, mailbox):
+            return ImapCommand(tag: tag, name: "COPY", arguments: "\(set) \(mailbox)")
+        case let .move(set, mailbox):
+            return ImapCommand(tag: tag, name: "MOVE", arguments: "\(set) \(mailbox)")
         case let .search(criteria):
             return ImapCommand(tag: tag, name: "SEARCH", arguments: criteria)
         case let .sort(criteria):
@@ -90,6 +98,10 @@ public enum ImapCommandKind: Sendable {
             return ImapCommand(tag: tag, name: "UID FETCH", arguments: "\(set) \(items)")
         case let .uidStore(set, data):
             return ImapCommand(tag: tag, name: "UID STORE", arguments: "\(set) \(data)")
+        case let .uidCopy(set, mailbox):
+            return ImapCommand(tag: tag, name: "UID COPY", arguments: "\(set) \(mailbox)")
+        case let .uidMove(set, mailbox):
+            return ImapCommand(tag: tag, name: "UID MOVE", arguments: "\(set) \(mailbox)")
         case let .uidSearch(criteria):
             return ImapCommand(tag: tag, name: "UID SEARCH", arguments: criteria)
         case let .uidSort(criteria):

@@ -68,7 +68,7 @@ public actor AsyncPop3Session {
         }
 
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return response
     }
@@ -80,7 +80,7 @@ public actor AsyncPop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return response
     }
@@ -92,7 +92,7 @@ public actor AsyncPop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return response
     }
@@ -104,7 +104,7 @@ public actor AsyncPop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return response
     }
@@ -116,7 +116,7 @@ public actor AsyncPop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess, let item = Pop3ListItem.parseLine(response.message) else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return item
     }
@@ -128,7 +128,7 @@ public actor AsyncPop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess, let item = Pop3UidlItem.parseLine(response.message) else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return item
     }
@@ -140,12 +140,12 @@ public actor AsyncPop3Session {
         let event = try await waitForMultilineEvent()
         if case let .multiline(response, lines) = event {
             guard response.isSuccess else {
-                throw SessionError.pop3Error(message: response.message)
+                throw pop3CommandError(from: response)
             }
             return lines
         }
         if case let .single(response) = event {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         throw SessionError.timeout
     }
@@ -179,12 +179,12 @@ public actor AsyncPop3Session {
         let event = try await waitForMultilineEvent()
         if case let .multiline(response, lines) = event {
             guard response.isSuccess else {
-                throw SessionError.pop3Error(message: response.message)
+                throw pop3CommandError(from: response)
             }
             return lines
         }
         if case let .single(response) = event {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         throw SessionError.timeout
     }
@@ -221,7 +221,7 @@ public actor AsyncPop3Session {
         if let stat = Pop3StatResponse.parse(response) {
             return stat
         }
-        throw SessionError.pop3Error(message: response.message)
+        throw pop3CommandError(from: response)
     }
 
     public func last() async throws -> Int {
@@ -231,7 +231,7 @@ public actor AsyncPop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess, let value = Int(response.message) else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         return value
     }
@@ -253,12 +253,12 @@ public actor AsyncPop3Session {
         let event = try await waitForMultilineEvent()
         if case let .multiline(response, lines) = event {
             guard response.isSuccess else {
-                throw SessionError.pop3Error(message: response.message)
+                throw pop3CommandError(from: response)
             }
             return Pop3ListParser.parse(lines)
         }
         if case let .single(response) = event {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         throw SessionError.timeout
     }
@@ -270,12 +270,12 @@ public actor AsyncPop3Session {
         let event = try await waitForMultilineEvent()
         if case let .multiline(response, lines) = event {
             guard response.isSuccess else {
-                throw SessionError.pop3Error(message: response.message)
+                throw pop3CommandError(from: response)
             }
             return Pop3UidlParser.parse(lines)
         }
         if case let .single(response) = event {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         throw SessionError.timeout
     }
@@ -289,7 +289,7 @@ public actor AsyncPop3Session {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw SessionError.pop3Error(message: response.message)
+            throw pop3CommandError(from: response)
         }
         try await tlsTransport.startTLS(validateCertificate: validateCertificate)
         return response
@@ -325,10 +325,10 @@ public actor AsyncPop3Session {
             for event in events {
                 switch event {
                 case let .single(response):
-                    throw SessionError.pop3Error(message: response.message)
+                    throw pop3CommandError(from: response)
                 case let .multiline(response, data):
                     guard response.isSuccess else {
-                        throw SessionError.pop3Error(message: response.message)
+                        throw pop3CommandError(from: response)
                     }
                     return (response, data)
                 }
@@ -367,7 +367,7 @@ public actor AsyncPop3Session {
                             awaitingStatus = false
                             continue
                         }
-                        throw SessionError.pop3Error(message: response.message)
+                        throw pop3CommandError(from: response)
                     }
                     continue
                 }
@@ -395,6 +395,10 @@ public actor AsyncPop3Session {
         }
 
         throw SessionError.timeout
+    }
+
+    private func pop3CommandError(from response: Pop3Response) -> Pop3CommandError {
+        Pop3CommandError(statusText: response.message)
     }
 
     private func ensureAuthenticated() async throws {

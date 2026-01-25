@@ -620,6 +620,122 @@ public actor AsyncImapSession {
         try await fetch(set, items: request.imapItemList, maxEmptyReads: maxEmptyReads)
     }
 
+    public func copy(_ set: String, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        try await ensureSelected()
+        let command = try await client.send(.copy(set, mailbox))
+        var emptyReads = 0
+
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    if response.isOk {
+                        let copyUid = ImapResponseCode.copyUid(from: response.text)
+                        return ImapCopyResult(response: response, copyUid: copyUid)
+                    }
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func copy(_ set: SequenceSet, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        try await copy(set.description, to: mailbox, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func uidCopy(_ set: UniqueIdSet, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        try await ensureSelected()
+        let command = try await client.send(.uidCopy(set.description, mailbox))
+        var emptyReads = 0
+
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    if response.isOk {
+                        let copyUid = ImapResponseCode.copyUid(from: response.text)
+                        return ImapCopyResult(response: response, copyUid: copyUid)
+                    }
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func move(_ set: String, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        try await ensureSelected()
+        let command = try await client.send(.move(set, mailbox))
+        var emptyReads = 0
+
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    if response.isOk {
+                        let copyUid = ImapResponseCode.copyUid(from: response.text)
+                        return ImapCopyResult(response: response, copyUid: copyUid)
+                    }
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
+    public func move(_ set: SequenceSet, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        try await move(set.description, to: mailbox, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func uidMove(_ set: UniqueIdSet, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        try await ensureSelected()
+        let command = try await client.send(.uidMove(set.description, mailbox))
+        var emptyReads = 0
+
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    if response.isOk {
+                        let copyUid = ImapResponseCode.copyUid(from: response.text)
+                        return ImapCopyResult(response: response, copyUid: copyUid)
+                    }
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
     public func fetchSummaries(
         _ set: String,
         request: FetchRequest,

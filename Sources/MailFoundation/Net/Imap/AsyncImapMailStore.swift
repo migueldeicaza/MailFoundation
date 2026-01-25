@@ -194,6 +194,36 @@ public actor AsyncImapMailStore: AsyncMailStore {
         return try await folder.uidSort(orderBy, query: query, charset: charset, maxEmptyReads: maxEmptyReads)
     }
 
+    public func copy(_ set: String, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        let folder = try requireSelectedFolder()
+        return try await folder.copy(set, to: mailbox, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func copy(_ set: SequenceSet, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        let folder = try requireSelectedFolder()
+        return try await folder.copy(set, to: mailbox, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func uidCopy(_ set: UniqueIdSet, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        let folder = try requireSelectedFolder()
+        return try await folder.uidCopy(set, to: mailbox, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func move(_ set: String, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        let folder = try requireSelectedFolder()
+        return try await folder.move(set, to: mailbox, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func move(_ set: SequenceSet, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        let folder = try requireSelectedFolder()
+        return try await folder.move(set, to: mailbox, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func uidMove(_ set: UniqueIdSet, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        let folder = try requireSelectedFolder()
+        return try await folder.uidMove(set, to: mailbox, maxEmptyReads: maxEmptyReads)
+    }
+
     public func fetchSummaries(
         _ set: String,
         request: FetchRequest,
@@ -440,6 +470,30 @@ public actor AsyncImapFolder: AsyncMailFolder {
         maxEmptyReads: Int = 10
     ) async throws -> ImapSearchResponse {
         try await session.uidSort(orderBy, query: query, charset: charset, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func copy(_ set: String, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        try await session.copy(set, to: mailbox, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func copy(_ set: SequenceSet, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        try await session.copy(set, to: mailbox, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func uidCopy(_ set: UniqueIdSet, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        try await session.uidCopy(set, to: mailbox, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func move(_ set: String, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        try await session.move(set, to: mailbox, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func move(_ set: SequenceSet, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        try await session.move(set, to: mailbox, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func uidMove(_ set: UniqueIdSet, to mailbox: String, maxEmptyReads: Int = 10) async throws -> ImapCopyResult {
+        try await session.uidMove(set, to: mailbox, maxEmptyReads: maxEmptyReads)
     }
 
     public func sortIdSet(
