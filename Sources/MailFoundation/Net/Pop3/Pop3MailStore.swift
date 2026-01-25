@@ -85,6 +85,73 @@ public final class Pop3MailStore: MailServiceBase<Pop3Response>, MailStore {
         try session.last()
     }
 
+    private func requireSelectedFolder() throws -> Pop3Folder {
+        guard let folder = selectedFolder else {
+            throw Pop3MailStoreError.noSelectedFolder
+        }
+        return folder
+    }
+
+    public func stat() throws -> Pop3StatResponse {
+        try requireSelectedFolder().stat()
+    }
+
+    public func list() throws -> [Pop3ListItem] {
+        try requireSelectedFolder().list()
+    }
+
+    public func list(_ index: Int) throws -> Pop3ListItem {
+        try requireSelectedFolder().list(index)
+    }
+
+    public func uidl() throws -> [Pop3UidlItem] {
+        try requireSelectedFolder().uidl()
+    }
+
+    public func uidl(_ index: Int) throws -> Pop3UidlItem {
+        try requireSelectedFolder().uidl(index)
+    }
+
+    public func retr(_ index: Int) throws -> [String] {
+        try requireSelectedFolder().retr(index)
+    }
+
+    public func retrData(_ index: Int) throws -> Pop3MessageData {
+        try requireSelectedFolder().retrData(index)
+    }
+
+    public func message(_ index: Int, options: ParserOptions = .default) throws -> MimeMessage {
+        try requireSelectedFolder().message(index, options: options)
+    }
+
+    public func retrRaw(_ index: Int) throws -> [UInt8] {
+        try requireSelectedFolder().retrRaw(index)
+    }
+
+    public func retrStream(_ index: Int, sink: ([UInt8]) throws -> Void) throws {
+        try requireSelectedFolder().retrStream(index, sink: sink)
+    }
+
+    public func top(_ index: Int, lines: Int) throws -> [String] {
+        try requireSelectedFolder().top(index, lines: lines)
+    }
+
+    public func topData(_ index: Int, lines: Int) throws -> Pop3MessageData {
+        try requireSelectedFolder().topData(index, lines: lines)
+    }
+
+    public func topHeaders(_ index: Int, lines: Int) throws -> HeaderList {
+        try requireSelectedFolder().topHeaders(index, lines: lines)
+    }
+
+    public func topRaw(_ index: Int, lines: Int) throws -> [UInt8] {
+        try requireSelectedFolder().topRaw(index, lines: lines)
+    }
+
+    public func topStream(_ index: Int, lines: Int, sink: ([UInt8]) throws -> Void) throws {
+        try requireSelectedFolder().topStream(index, lines: lines, sink: sink)
+    }
+
     internal func updateSelectedFolder(_ folder: Pop3Folder?, access: FolderAccess?) {
         selectedFolder = folder
         selectedAccess = access

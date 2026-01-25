@@ -100,6 +100,80 @@ public actor AsyncPop3MailStore: AsyncMailStore {
         try await session.last()
     }
 
+    private func requireSelectedFolder() throws -> AsyncPop3Folder {
+        guard let folder = selectedFolderStorage else {
+            throw Pop3MailStoreError.noSelectedFolder
+        }
+        return folder
+    }
+
+    public func stat() async throws -> Pop3StatResponse? {
+        try await requireSelectedFolder().stat()
+    }
+
+    public func list() async throws -> [Pop3ListItem] {
+        try await requireSelectedFolder().list()
+    }
+
+    public func list(_ index: Int) async throws -> Pop3ListItem {
+        try await requireSelectedFolder().list(index)
+    }
+
+    public func uidl() async throws -> [Pop3UidlItem] {
+        try await requireSelectedFolder().uidl()
+    }
+
+    public func uidl(_ index: Int) async throws -> Pop3UidlItem {
+        try await requireSelectedFolder().uidl(index)
+    }
+
+    public func retr(_ index: Int) async throws -> [String] {
+        try await requireSelectedFolder().retr(index)
+    }
+
+    public func retrData(_ index: Int) async throws -> Pop3MessageData {
+        try await requireSelectedFolder().retrData(index)
+    }
+
+    public func message(_ index: Int, options: ParserOptions = .default) async throws -> MimeMessage {
+        try await requireSelectedFolder().message(index, options: options)
+    }
+
+    public func retrRaw(_ index: Int) async throws -> [UInt8] {
+        try await requireSelectedFolder().retrRaw(index)
+    }
+
+    public func retrStream(
+        _ index: Int,
+        sink: @Sendable ([UInt8]) async throws -> Void
+    ) async throws {
+        try await requireSelectedFolder().retrStream(index, sink: sink)
+    }
+
+    public func top(_ index: Int, lines: Int) async throws -> [String] {
+        try await requireSelectedFolder().top(index, lines: lines)
+    }
+
+    public func topData(_ index: Int, lines: Int) async throws -> Pop3MessageData {
+        try await requireSelectedFolder().topData(index, lines: lines)
+    }
+
+    public func topHeaders(_ index: Int, lines: Int) async throws -> HeaderList {
+        try await requireSelectedFolder().topHeaders(index, lines: lines)
+    }
+
+    public func topRaw(_ index: Int, lines: Int) async throws -> [UInt8] {
+        try await requireSelectedFolder().topRaw(index, lines: lines)
+    }
+
+    public func topStream(
+        _ index: Int,
+        lines: Int,
+        sink: @Sendable ([UInt8]) async throws -> Void
+    ) async throws {
+        try await requireSelectedFolder().topStream(index, lines: lines, sink: sink)
+    }
+
     internal func updateSelectedFolder(_ folder: AsyncPop3Folder?, access: FolderAccess?) {
         selectedFolderStorage = folder
         selectedAccessStorage = access

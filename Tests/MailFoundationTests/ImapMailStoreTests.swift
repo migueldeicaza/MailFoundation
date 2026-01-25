@@ -207,6 +207,29 @@ func imapStoreSearchUsesSelection() throws {
     #expect(response.ids == [9, 6])
 }
 
+@Test("IMAP store fetch summaries uses selected folder")
+func imapStoreFetchSummariesUsesSelection() throws {
+    let transport = TestTransport(incoming: [
+        Array("* OK Ready\r\n".utf8),
+        Array("A0001 OK LOGIN\r\n".utf8),
+        Array("* 1 EXISTS\r\n".utf8),
+        Array("A0002 OK EXAMINE\r\n".utf8),
+        Array("* 1 FETCH (UID 10 FLAGS (\\Seen))\r\n".utf8),
+        Array("A0003 OK FETCH\r\n".utf8)
+    ])
+    let store = ImapMailStore(transport: transport)
+    _ = try store.connect()
+    _ = try store.authenticate(user: "user", password: "pass")
+    _ = try store.openInbox(access: .readOnly)
+
+    let request = FetchRequest(items: [.flags, .uniqueId])
+    let summaries = try store.fetchSummaries("1", request: request)
+
+    #expect(summaries.count == 1)
+    #expect(summaries.first?.uniqueId?.id == 10)
+    #expect(summaries.first?.flags.contains(.seen) == true)
+}
+
 @Test("IMAP store search idSet requires selection")
 func imapStoreSearchIdSetRequiresSelection() throws {
     let store = ImapMailStore(transport: TestTransport(incoming: []))
@@ -269,6 +292,36 @@ func asyncImapStoreSearchRequiresSelection() async throws {
     } catch {
         #expect(Bool(false))
     }
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP store fetch summaries uses selected folder")
+func asyncImapStoreFetchSummariesUsesSelection() async throws {
+    let transport = AsyncStreamTransport()
+    let store = AsyncImapMailStore(transport: transport)
+
+    let connectTask = Task { try await store.connect() }
+    await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("A0001 OK LOGIN\r\n".utf8))
+    _ = try await authTask.value
+
+    let openTask = Task { try await store.openInbox(access: .readOnly) }
+    await transport.yieldIncoming(Array("* 1 EXISTS\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK EXAMINE\r\n".utf8))
+    _ = try await openTask.value
+
+    let request = FetchRequest(items: [.flags, .uniqueId])
+    let fetchTask = Task { try await store.fetchSummaries("1", request: request) }
+    await transport.yieldIncoming(Array("* 1 FETCH (UID 11 FLAGS (\\Seen))\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK FETCH\r\n".utf8))
+    let summaries = try await fetchTask.value
+
+    #expect(summaries.count == 1)
+    #expect(summaries.first?.uniqueId?.id == 11)
+    #expect(summaries.first?.flags.contains(.seen) == true)
 }
 
 @available(macOS 10.15, iOS 13.0, *)

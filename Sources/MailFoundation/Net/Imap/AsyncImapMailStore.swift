@@ -194,6 +194,24 @@ public actor AsyncImapMailStore: AsyncMailStore {
         return try await folder.uidSort(orderBy, query: query, charset: charset, maxEmptyReads: maxEmptyReads)
     }
 
+    public func fetchSummaries(
+        _ set: String,
+        request: FetchRequest,
+        previewLength: Int = 512
+    ) async throws -> [MessageSummary] {
+        let folder = try requireSelectedFolder()
+        return try await folder.fetchSummaries(set, request: request, previewLength: previewLength)
+    }
+
+    public func uidFetchSummaries(
+        _ set: UniqueIdSet,
+        request: FetchRequest,
+        previewLength: Int = 512
+    ) async throws -> [MessageSummary] {
+        let folder = try requireSelectedFolder()
+        return try await folder.uidFetchSummaries(set, request: request, previewLength: previewLength)
+    }
+
     public func searchIdSet(
         _ criteria: String,
         validity: UInt32 = 0,

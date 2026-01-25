@@ -157,6 +157,18 @@ public final class ImapMailStore: MailServiceBase<ImapResponse>, MailStore {
         try requireSelectedFolder().uidSort(orderBy, query: query, charset: charset)
     }
 
+    public func fetchSummaries(_ set: String, request: FetchRequest, previewLength: Int = 512) throws -> [MessageSummary] {
+        try requireSelectedFolder().fetchSummaries(set, request: request, previewLength: previewLength)
+    }
+
+    public func uidFetchSummaries(
+        _ set: UniqueIdSet,
+        request: FetchRequest,
+        previewLength: Int = 512
+    ) throws -> [MessageSummary] {
+        try requireSelectedFolder().uidFetchSummaries(set, request: request, previewLength: previewLength)
+    }
+
     public func searchIdSet(_ criteria: String, validity: UInt32 = 0) throws -> ImapSearchIdSet {
         try requireSelectedFolder().searchIdSet(criteria, validity: validity)
     }
