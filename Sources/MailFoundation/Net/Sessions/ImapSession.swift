@@ -519,6 +519,35 @@ public final class ImapSession {
         try fetch(set, items: request.imapItemList)
     }
 
+    public func id(_ parameters: [String: String?]? = nil) throws -> ImapIdResponse? {
+        let command = client.send(.id(ImapId.buildArguments(parameters)))
+        try ensureWrite()
+        var reads = 0
+        var response: ImapIdResponse?
+
+        while reads < maxReads {
+            let messages = client.receiveWithLiterals()
+            if messages.isEmpty {
+                reads += 1
+                continue
+            }
+
+            for message in messages {
+                if let idResponse = ImapIdResponse.parse(message.line) {
+                    response = idResponse
+                }
+                if let tagged = message.response, case let .tagged(tag) = tagged.kind, tag == command.tag {
+                    guard tagged.isOk else {
+                        throw SessionError.imapError(status: tagged.status, text: tagged.text)
+                    }
+                    return response
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
     public func copy(_ set: String, to mailbox: String) throws -> ImapCopyResult {
         try ensureSelected()
         let command = client.send(.copy(set, mailbox))

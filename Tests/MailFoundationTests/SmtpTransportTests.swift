@@ -180,8 +180,15 @@ func smtpTransportVrfyErrorResponse() throws {
     let smtp = SmtpTransport(transport: transport, maxReads: 2)
     _ = try smtp.connect()
 
-    #expect(throws: SessionError.smtpError(code: 550, message: "5.1.1 No such user", enhancedStatusCode: SmtpEnhancedStatusCode("5.1.1"))) {
+    do {
         _ = try smtp.vrfy("missing")
+        #expect(Bool(false))
+    } catch let error as SmtpCommandError {
+        #expect(error.errorCode == .unexpectedStatusCode)
+        #expect(error.statusCode == .mailboxUnavailable)
+        #expect(error.enhancedStatusCode == SmtpEnhancedStatusCode("5.1.1"))
+    } catch {
+        #expect(Bool(false))
     }
 }
 
@@ -277,8 +284,12 @@ func asyncSmtpTransportVrfyErrorResponse() async throws {
     do {
         _ = try await vrfyTask.value
         #expect(Bool(false))
+    } catch let error as SmtpCommandError {
+        #expect(error.errorCode == .unexpectedStatusCode)
+        #expect(error.statusCode == .mailboxUnavailable)
+        #expect(error.enhancedStatusCode == SmtpEnhancedStatusCode("5.1.1"))
     } catch {
-        #expect(error as? SessionError == .smtpError(code: 550, message: "5.1.1 No such user", enhancedStatusCode: SmtpEnhancedStatusCode("5.1.1")))
+        #expect(Bool(false))
     }
 }
 

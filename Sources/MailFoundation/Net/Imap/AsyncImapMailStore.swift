@@ -224,6 +224,10 @@ public actor AsyncImapMailStore: AsyncMailStore {
         return try await folder.uidMove(set, to: mailbox, maxEmptyReads: maxEmptyReads)
     }
 
+    public func id(_ parameters: [String: String?]? = nil, maxEmptyReads: Int = 10) async throws -> ImapIdResponse? {
+        try await session.id(parameters, maxEmptyReads: maxEmptyReads)
+    }
+
     public func fetchSummaries(
         _ set: String,
         request: FetchRequest,

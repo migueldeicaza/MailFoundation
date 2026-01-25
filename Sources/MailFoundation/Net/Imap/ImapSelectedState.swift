@@ -55,6 +55,8 @@ public struct ImapSelectedState: Sendable, Equatable {
                 applyUidValidity(value)
             case .highestModSeq(let value):
                 highestModSeq = max(highestModSeq ?? 0, value)
+            case .copyUid:
+                break
             }
         }
     }

@@ -71,6 +71,14 @@ public struct ImapCopyUid: Sendable, Equatable {
     public let destination: UniqueIdSet?
 }
 
+public extension ImapCopyUid {
+    static func == (lhs: ImapCopyUid, rhs: ImapCopyUid) -> Bool {
+        lhs.uidValidity == rhs.uidValidity
+            && lhs.source?.description == rhs.source?.description
+            && lhs.destination?.description == rhs.destination?.description
+    }
+}
+
 public extension ImapResponseCode {
     static func copyUid(from text: String) -> ImapCopyUid? {
         for code in parseAll(text) {

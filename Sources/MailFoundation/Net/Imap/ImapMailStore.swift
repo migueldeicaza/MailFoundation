@@ -181,6 +181,10 @@ public final class ImapMailStore: MailServiceBase<ImapResponse>, MailStore {
         try requireSelectedFolder().uidMove(set, to: mailbox)
     }
 
+    public func id(_ parameters: [String: String?]? = nil) throws -> ImapIdResponse? {
+        try session.id(parameters)
+    }
+
     public func fetchSummaries(_ set: String, request: FetchRequest, previewLength: Int = 512) throws -> [MessageSummary] {
         try requireSelectedFolder().fetchSummaries(set, request: request, previewLength: previewLength)
     }

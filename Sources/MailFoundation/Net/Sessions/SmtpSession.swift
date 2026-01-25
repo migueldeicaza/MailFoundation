@@ -43,7 +43,7 @@ public final class SmtpSession {
         if let capabilities = client.handleEhloResponse(response) {
             return capabilities
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func helo(domain: String) throws -> SmtpResponse {
@@ -55,7 +55,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func noop() throws -> SmtpResponse {
@@ -67,7 +67,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func rset() throws -> SmtpResponse {
@@ -79,7 +79,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func vrfy(_ argument: String) throws -> SmtpResponse {
@@ -91,7 +91,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func vrfyResult(_ argument: String) throws -> SmtpVrfyResult {
@@ -108,7 +108,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func expnResult(_ argument: String) throws -> SmtpExpnResult {
@@ -125,7 +125,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func helpResult(_ argument: String? = nil) throws -> SmtpHelpResult {
@@ -142,7 +142,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func mailFrom(_ address: String, parameters: SmtpMailFromParameters) throws -> SmtpResponse {
@@ -154,7 +154,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func rcptTo(_ address: String) throws -> SmtpResponse {
@@ -166,7 +166,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func rcptTo(_ address: String, parameters: SmtpRcptToParameters) throws -> SmtpResponse {
@@ -178,7 +178,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func sendData(_ message: [UInt8]) throws -> SmtpResponse {
@@ -187,7 +187,7 @@ public final class SmtpSession {
             if response.isSuccess {
                 return response
             }
-            throw smtpError(from: response)
+            throw smtpCommandError(.messageNotAccepted, response: response)
         }
         throw SessionError.timeout
     }
@@ -201,7 +201,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func authenticate(
@@ -229,7 +229,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func sendMail(from: String, to recipients: [String], data: [UInt8]) throws -> SmtpResponse {
@@ -432,7 +432,7 @@ public final class SmtpSession {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw smtpError(from: response)
+            throw smtpCommandError(.unexpectedStatusCode, response: response)
         }
         tlsTransport.startTLS(validateCertificate: validateCertificate)
         return response
@@ -447,7 +447,7 @@ public final class SmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     private func smtpError(from response: SmtpResponse) -> SessionError {

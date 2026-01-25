@@ -5,6 +5,10 @@
 //
 
 public extension ImapCommandKind {
+    static func id(_ parameters: [String: String?]? = nil) -> ImapCommandKind {
+        .id(ImapId.buildArguments(parameters))
+    }
+
     static func fetch(_ set: SequenceSet, items: String) -> ImapCommandKind {
         .fetch(set.description, items)
     }

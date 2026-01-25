@@ -90,7 +90,7 @@ public actor AsyncSmtpSession {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw smtpError(from: response)
+            throw smtpCommandError(.unexpectedStatusCode, response: response)
         }
         return response
     }
@@ -146,7 +146,7 @@ public actor AsyncSmtpSession {
         if response.isSuccess {
             return response
         }
-        throw smtpError(from: response)
+        throw smtpCommandError(.unexpectedStatusCode, response: response)
     }
 
     public func sendData(_ message: [UInt8]) async throws -> SmtpResponse? {
@@ -342,7 +342,7 @@ public actor AsyncSmtpSession {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw smtpError(from: response)
+            throw smtpCommandError(.unexpectedStatusCode, response: response)
         }
         try await tlsTransport.startTLS(validateCertificate: validateCertificate)
         return response
