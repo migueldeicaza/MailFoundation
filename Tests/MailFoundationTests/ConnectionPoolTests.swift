@@ -407,6 +407,7 @@ func connectionPoolHandlesAuthenticationErrors() async throws {
         configuration: MailServerConfiguration(host: "test.example.com", port: 993),
         credentials: MailCredentials(username: "user", password: "pass"),
         maxConnections: 3,
+        retryPolicy: .none, // Disable retries for this test
         serviceFactory: { MockMailService() },
         authenticator: { _, _ in
             throw AuthError()
@@ -419,4 +420,135 @@ func connectionPoolHandlesAuthenticationErrors() async throws {
     } catch ConnectionPoolError.connectionFailed {
         // Expected (auth errors are wrapped in connectionFailed)
     }
+}
+
+// MARK: - Retry Integration Tests
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Connection pool retries transient connection failures")
+func connectionPoolRetriesTransientFailures() async throws {
+    let counter = TestCounter()
+
+    let pool = ConnectionPool<MockMailService>(
+        configuration: MailServerConfiguration(host: "test.example.com", port: 993),
+        credentials: MailCredentials(username: "user", password: "pass"),
+        maxConnections: 3,
+        retryPolicy: RetryPolicy.linear(maxRetries: 3, delayMs: 10),
+        serviceFactory: {
+            await counter.increment()
+            let count = await counter.value()
+            // Fail first 2 attempts with a transient error
+            if count < 3 {
+                throw TimeoutError.timedOut(milliseconds: 1000)
+            }
+            return MockMailService()
+        },
+        authenticator: { service, creds in
+            try await service.authenticate(user: creds.username, password: creds.password)
+        }
+    )
+
+    let connection = try await pool.acquire()
+    #expect(await counter.value() == 3) // Should have taken 3 attempts
+    #expect(await connection.service.isConnected)
+
+    await connection.release()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Connection pool exhausts retries on persistent failure")
+func connectionPoolExhaustsRetries() async throws {
+    let counter = TestCounter()
+
+    let pool = ConnectionPool<MockMailService>(
+        configuration: MailServerConfiguration(host: "test.example.com", port: 993),
+        credentials: MailCredentials(username: "user", password: "pass"),
+        maxConnections: 3,
+        retryPolicy: RetryPolicy.linear(maxRetries: 2, delayMs: 10),
+        serviceFactory: {
+            await counter.increment()
+            throw TimeoutError.timedOut(milliseconds: 1000)
+        },
+        authenticator: { _, _ in }
+    )
+
+    do {
+        _ = try await pool.acquire()
+        Issue.record("Expected connection error after retries exhausted")
+    } catch ConnectionPoolError.connectionFailed {
+        // Expected - should have tried 3 times (initial + 2 retries)
+        #expect(await counter.value() == 3)
+    }
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Connection pool does not retry permanent failures")
+func connectionPoolDoesNotRetryPermanentFailures() async throws {
+    let counter = TestCounter()
+
+    let pool = ConnectionPool<MockMailService>(
+        configuration: MailServerConfiguration(host: "test.example.com", port: 993),
+        credentials: MailCredentials(username: "user", password: "pass"),
+        maxConnections: 3,
+        retryPolicy: RetryPolicy.linear(maxRetries: 3, delayMs: 10),
+        serviceFactory: {
+            await counter.increment()
+            // PermanentTestError would be classified as permanent
+            throw PermanentTestError()
+        },
+        authenticator: { _, _ in }
+    )
+
+    do {
+        _ = try await pool.acquire()
+        Issue.record("Expected connection error")
+    } catch ConnectionPoolError.connectionFailed {
+        // Should only try once since it's a permanent error
+        #expect(await counter.value() == 1)
+    }
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Connection pool withRetryingConnection retries operation")
+func connectionPoolWithRetryingConnectionRetriesOperation() async throws {
+    let operationCounter = TestCounter()
+
+    let pool = ConnectionPool<MockMailService>(
+        configuration: MailServerConfiguration(host: "test.example.com", port: 993),
+        credentials: MailCredentials(username: "user", password: "pass"),
+        maxConnections: 3,
+        retryPolicy: RetryPolicy.linear(maxRetries: 3, delayMs: 10),
+        serviceFactory: { MockMailService() },
+        authenticator: { service, creds in
+            try await service.authenticate(user: creds.username, password: creds.password)
+        }
+    )
+
+    let result = try await pool.withRetryingConnection { service in
+        await operationCounter.increment()
+        let count = await operationCounter.value()
+        if count < 2 {
+            throw TransientTestError()
+        }
+        return "success after retry"
+    }
+
+    #expect(result == "success after retry")
+    #expect(await operationCounter.value() == 2)
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Connection pool stores retry policy")
+func connectionPoolStoresRetryPolicy() async throws {
+    let policy = RetryPolicy.aggressive
+    let pool = ConnectionPool<MockMailService>(
+        configuration: MailServerConfiguration(host: "test.example.com", port: 993),
+        credentials: MailCredentials(username: "user", password: "pass"),
+        maxConnections: 3,
+        retryPolicy: policy,
+        serviceFactory: { MockMailService() },
+        authenticator: { _, _ in }
+    )
+
+    #expect(await pool.retryPolicy == policy)
 }

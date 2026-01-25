@@ -87,6 +87,7 @@ public actor ConnectionPool<Service: AsyncMailService> where Service: Sendable {
     public let configuration: MailServerConfiguration
     public let credentials: MailCredentials
     public let maxConnections: Int
+    public let retryPolicy: RetryPolicy
 
     private let serviceFactory: @Sendable () async throws -> Service
     private let authenticator: @Sendable (Service, MailCredentials) async throws -> Void
@@ -102,18 +103,21 @@ public actor ConnectionPool<Service: AsyncMailService> where Service: Sendable {
     ///   - configuration: Server connection configuration
     ///   - credentials: Authentication credentials
     ///   - maxConnections: Maximum number of concurrent connections (default: 5)
+    ///   - retryPolicy: Retry policy for connection attempts (default: .default)
     ///   - serviceFactory: Factory function to create new service instances
     ///   - authenticator: Function to authenticate a service with credentials
     public init(
         configuration: MailServerConfiguration,
         credentials: MailCredentials,
         maxConnections: Int = 5,
+        retryPolicy: RetryPolicy = .default,
         serviceFactory: @escaping @Sendable () async throws -> Service,
         authenticator: @escaping @Sendable (Service, MailCredentials) async throws -> Void
     ) {
         self.configuration = configuration
         self.credentials = credentials
         self.maxConnections = max(1, maxConnections)
+        self.retryPolicy = retryPolicy
         self.serviceFactory = serviceFactory
         self.authenticator = authenticator
     }
@@ -185,16 +189,38 @@ public actor ConnectionPool<Service: AsyncMailService> where Service: Sendable {
     }
 
     private func createAndConnectService() async throws -> Service {
+        // Capture values for use in @Sendable closure
+        let factory = serviceFactory
+        let auth = authenticator
+        let creds = credentials
+        let policy = retryPolicy
+
         do {
-            let service = try await serviceFactory()
-            _ = try await service.connect()
+            return try await withRetry(policy: policy) {
+                let service = try await factory()
+                _ = try await service.connect()
 
-            // Authenticate if not already authenticated
-            if await !service.isAuthenticated {
-                try await authenticator(service, credentials)
+                // Authenticate if not already authenticated
+                if await !service.isAuthenticated {
+                    try await auth(service, creds)
+                }
+
+                return service
             }
-
-            return service
+        } catch let error as RetryError {
+            // Unwrap the retry error to expose the underlying cause
+            switch error {
+            case .exhausted(let lastError, _):
+                throw ConnectionPoolError.connectionFailed(lastError)
+            case .permanentFailure(let underlyingError):
+                // Check if it was an auth failure
+                if underlyingError is ConnectionPoolError {
+                    throw underlyingError
+                }
+                throw ConnectionPoolError.connectionFailed(underlyingError)
+            case .cancelled:
+                throw ConnectionPoolError.connectionFailed(error)
+            }
         } catch {
             throw ConnectionPoolError.connectionFailed(error)
         }
@@ -272,6 +298,28 @@ public actor ConnectionPool<Service: AsyncMailService> where Service: Sendable {
             throw error
         }
     }
+
+    /// Executes an operation using a pooled connection with automatic retries.
+    ///
+    /// This method will retry the entire operation (including acquiring a new connection)
+    /// on transient failures. Use this for operations that may fail due to temporary
+    /// network issues or server unavailability.
+    ///
+    /// - Parameters:
+    ///   - policy: The retry policy to use (defaults to the pool's retry policy)
+    ///   - operation: The operation to perform with the connection
+    /// - Returns: The result of the operation
+    /// - Throws: `RetryError.exhausted` if all retries fail, or the original error if permanent
+    public func withRetryingConnection<T: Sendable>(
+        policy: RetryPolicy? = nil,
+        _ operation: @Sendable @escaping (Service) async throws -> T
+    ) async throws -> T {
+        let effectivePolicy = policy ?? retryPolicy
+
+        return try await withRetry(policy: effectivePolicy) {
+            try await self.withConnection(operation)
+        }
+    }
 }
 
 // MARK: - Convenience Initializers for Specific Service Types
@@ -284,17 +332,20 @@ public extension ConnectionPool where Service == AsyncImapMailStore {
     ///   - configuration: Server connection configuration
     ///   - credentials: Authentication credentials
     ///   - maxConnections: Maximum number of concurrent connections
+    ///   - retryPolicy: Retry policy for connection attempts (default: .default)
     ///   - transportBackend: The transport backend to use (default: .network)
     init(
         configuration: MailServerConfiguration,
         credentials: MailCredentials,
         maxConnections: Int = 5,
+        retryPolicy: RetryPolicy = .default,
         transportBackend: AsyncTransportBackend = .network
     ) {
         self.init(
             configuration: configuration,
             credentials: credentials,
             maxConnections: maxConnections,
+            retryPolicy: retryPolicy,
             serviceFactory: {
                 let transport = try AsyncTransportFactory.make(
                     host: configuration.host,
@@ -318,12 +369,14 @@ public extension ConnectionPool where Service == AsyncSmtpTransport {
     ///   - configuration: Server connection configuration
     ///   - credentials: Authentication credentials
     ///   - maxConnections: Maximum number of concurrent connections
+    ///   - retryPolicy: Retry policy for connection attempts (default: .default)
     ///   - transportBackend: The transport backend to use (default: .network)
     ///   - localDomain: The local domain for EHLO (default: "localhost")
     init(
         configuration: MailServerConfiguration,
         credentials: MailCredentials,
         maxConnections: Int = 5,
+        retryPolicy: RetryPolicy = .default,
         transportBackend: AsyncTransportBackend = .network,
         localDomain: String = "localhost"
     ) {
@@ -331,6 +384,7 @@ public extension ConnectionPool where Service == AsyncSmtpTransport {
             configuration: configuration,
             credentials: credentials,
             maxConnections: maxConnections,
+            retryPolicy: retryPolicy,
             serviceFactory: {
                 try AsyncSmtpTransport.make(
                     host: configuration.host,
@@ -355,17 +409,20 @@ public extension ConnectionPool where Service == AsyncPop3MailStore {
     ///   - configuration: Server connection configuration
     ///   - credentials: Authentication credentials
     ///   - maxConnections: Maximum number of concurrent connections
+    ///   - retryPolicy: Retry policy for connection attempts (default: .default)
     ///   - transportBackend: The transport backend to use (default: .network)
     init(
         configuration: MailServerConfiguration,
         credentials: MailCredentials,
         maxConnections: Int = 5,
+        retryPolicy: RetryPolicy = .default,
         transportBackend: AsyncTransportBackend = .network
     ) {
         self.init(
             configuration: configuration,
             credentials: credentials,
             maxConnections: maxConnections,
+            retryPolicy: retryPolicy,
             serviceFactory: {
                 let transport = try AsyncTransportFactory.make(
                     host: configuration.host,
