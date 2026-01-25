@@ -239,7 +239,7 @@ public final class SmtpSession {
             throw SessionError.timeout
         }
         guard mailResponse.isSuccess else {
-            throw smtpError(from: mailResponse)
+            throw smtpCommandError(.senderNotAccepted, response: mailResponse, mailboxAddress: from)
         }
 
         for recipient in recipients {
@@ -249,7 +249,7 @@ public final class SmtpSession {
                 throw SessionError.timeout
             }
             guard rcptResponse.isSuccess else {
-                throw smtpError(from: rcptResponse)
+                throw smtpCommandError(.recipientNotAccepted, response: rcptResponse, mailboxAddress: recipient)
             }
         }
 
@@ -258,7 +258,7 @@ public final class SmtpSession {
             if dataResponse.isSuccess {
                 return dataResponse
             }
-            throw smtpError(from: dataResponse)
+            throw smtpCommandError(.messageNotAccepted, response: dataResponse)
         }
         throw SessionError.timeout
     }
@@ -280,7 +280,7 @@ public final class SmtpSession {
             throw SessionError.timeout
         }
         guard mailResponse.isSuccess else {
-            throw smtpError(from: mailResponse)
+            throw smtpCommandError(.senderNotAccepted, response: mailResponse, mailboxAddress: from)
         }
 
         for recipient in recipients {
@@ -294,7 +294,7 @@ public final class SmtpSession {
                 throw SessionError.timeout
             }
             guard rcptResponse.isSuccess else {
-                throw smtpError(from: rcptResponse)
+                throw smtpCommandError(.recipientNotAccepted, response: rcptResponse, mailboxAddress: recipient)
             }
         }
 
@@ -303,7 +303,7 @@ public final class SmtpSession {
             if dataResponse.isSuccess {
                 return dataResponse
             }
-            throw smtpError(from: dataResponse)
+            throw smtpCommandError(.messageNotAccepted, response: dataResponse)
         }
         throw SessionError.timeout
     }
@@ -335,15 +335,15 @@ public final class SmtpSession {
             throw SessionError.timeout
         }
         guard mailResponse.isSuccess else {
-            throw smtpError(from: mailResponse)
+            throw smtpCommandError(.senderNotAccepted, response: mailResponse, mailboxAddress: from)
         }
 
-        for _ in recipients {
+        for recipient in recipients {
             guard let rcptResponse = client.waitForResponse(maxReads: maxReads) else {
                 throw SessionError.timeout
             }
             guard rcptResponse.isSuccess else {
-                throw smtpError(from: rcptResponse)
+                throw smtpCommandError(.recipientNotAccepted, response: rcptResponse, mailboxAddress: recipient)
             }
         }
 
@@ -352,7 +352,7 @@ public final class SmtpSession {
             if dataResponse.isSuccess {
                 return dataResponse
             }
-            throw smtpError(from: dataResponse)
+            throw smtpCommandError(.messageNotAccepted, response: dataResponse)
         }
         throw SessionError.timeout
     }
@@ -366,7 +366,7 @@ public final class SmtpSession {
             throw SessionError.timeout
         }
         guard response.isSuccess else {
-            throw smtpError(from: response)
+            throw smtpCommandError(.messageNotAccepted, response: response)
         }
         return response
     }
@@ -390,7 +390,7 @@ public final class SmtpSession {
             throw SessionError.timeout
         }
         guard mailResponse.isSuccess else {
-            throw smtpError(from: mailResponse)
+            throw smtpCommandError(.senderNotAccepted, response: mailResponse, mailboxAddress: from)
         }
 
         for recipient in recipients {
@@ -404,7 +404,7 @@ public final class SmtpSession {
                 throw SessionError.timeout
             }
             guard rcptResponse.isSuccess else {
-                throw smtpError(from: rcptResponse)
+                throw smtpCommandError(.recipientNotAccepted, response: rcptResponse, mailboxAddress: recipient)
             }
         }
 
@@ -456,6 +456,14 @@ public final class SmtpSession {
             message: response.lines.joined(separator: " "),
             enhancedStatusCode: response.enhancedStatusCode
         )
+    }
+
+    private func smtpCommandError(
+        _ code: SmtpErrorCode,
+        response: SmtpResponse,
+        mailboxAddress: String? = nil
+    ) -> SmtpCommandError {
+        SmtpCommandError(errorCode: code, response: response, mailboxAddress: mailboxAddress)
     }
 
     private func ensureWrite() throws {

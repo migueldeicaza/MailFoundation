@@ -65,6 +65,72 @@ func syncSmtpSessionAddressParsing() throws {
     #expect(help.text.contains("VRFY"))
 }
 
+@Test("Sync SMTP session sendMail sender not accepted")
+func syncSmtpSessionSendMailSenderNotAccepted() throws {
+    let transport = TestTransport(incoming: [
+        Array("220 Ready\r\n".utf8),
+        Array("550 5.1.1 Sender rejected\r\n".utf8)
+    ])
+    let session = SmtpSession(transport: transport, maxReads: 2)
+    _ = try session.connect()
+
+    do {
+        _ = try session.sendMail(from: "alice@example.com", to: ["bob@example.com"], data: Array("Hello\r\n".utf8))
+        #expect(Bool(false))
+    } catch let error as SmtpCommandError {
+        #expect(error.errorCode == .senderNotAccepted)
+        #expect(error.statusCode == .mailboxUnavailable)
+        #expect(error.mailboxAddress == "alice@example.com")
+    } catch {
+        #expect(Bool(false))
+    }
+}
+
+@Test("Sync SMTP session sendMail recipient not accepted")
+func syncSmtpSessionSendMailRecipientNotAccepted() throws {
+    let transport = TestTransport(incoming: [
+        Array("220 Ready\r\n".utf8),
+        Array("250 OK\r\n".utf8),
+        Array("550 5.1.1 No such user\r\n".utf8)
+    ])
+    let session = SmtpSession(transport: transport, maxReads: 3)
+    _ = try session.connect()
+
+    do {
+        _ = try session.sendMail(from: "alice@example.com", to: ["bob@example.com"], data: Array("Hello\r\n".utf8))
+        #expect(Bool(false))
+    } catch let error as SmtpCommandError {
+        #expect(error.errorCode == .recipientNotAccepted)
+        #expect(error.statusCode == .mailboxUnavailable)
+        #expect(error.mailboxAddress == "bob@example.com")
+    } catch {
+        #expect(Bool(false))
+    }
+}
+
+@Test("Sync SMTP session sendMail message not accepted")
+func syncSmtpSessionSendMailMessageNotAccepted() throws {
+    let transport = TestTransport(incoming: [
+        Array("220 Ready\r\n".utf8),
+        Array("250 OK\r\n".utf8),
+        Array("250 OK\r\n".utf8),
+        Array("354 End data\r\n".utf8),
+        Array("552 5.2.2 Mailbox full\r\n".utf8)
+    ])
+    let session = SmtpSession(transport: transport, maxReads: 4)
+    _ = try session.connect()
+
+    do {
+        _ = try session.sendMail(from: "alice@example.com", to: ["bob@example.com"], data: Array("Hello\r\n".utf8))
+        #expect(Bool(false))
+    } catch let error as SmtpCommandError {
+        #expect(error.errorCode == .messageNotAccepted)
+        #expect(error.statusCode == .exceededStorageAllocation)
+    } catch {
+        #expect(Bool(false))
+    }
+}
+
 @Test("Sync SMTP session parses split multiline responses")
 func syncSmtpSessionSplitMultilineResponses() throws {
     let transport = TestTransport(incoming: [
@@ -103,6 +169,33 @@ func asyncSmtpSessionBdatChunk() async throws {
     let sent = await transport.sentSnapshot()
     #expect(String(decoding: sent.first ?? [], as: UTF8.self) == "BDAT 5 LAST\r\n")
     #expect(sent.dropFirst().first == Array("Hello".utf8))
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async SMTP session sendMail sender not accepted")
+func asyncSmtpSessionSendMailSenderNotAccepted() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncSmtpSession(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("220 Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let sendTask = Task {
+        try await session.sendMail(from: "alice@example.com", to: ["bob@example.com"], data: Array("Hello\r\n".utf8))
+    }
+    await transport.yieldIncoming(Array("550 5.1.1 Sender rejected\r\n".utf8))
+
+    do {
+        _ = try await sendTask.value
+        #expect(Bool(false))
+    } catch let error as SmtpCommandError {
+        #expect(error.errorCode == .senderNotAccepted)
+        #expect(error.statusCode == .mailboxUnavailable)
+        #expect(error.mailboxAddress == "alice@example.com")
+    } catch {
+        #expect(Bool(false))
+    }
 }
 
 @available(macOS 10.15, iOS 13.0, *)
