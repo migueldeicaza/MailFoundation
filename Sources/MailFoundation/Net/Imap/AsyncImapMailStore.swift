@@ -228,6 +228,10 @@ public actor AsyncImapMailStore: AsyncMailStore {
         try await session.id(parameters, maxEmptyReads: maxEmptyReads)
     }
 
+    public func namespace(maxEmptyReads: Int = 10) async throws -> ImapNamespaceResponse? {
+        try await session.namespace(maxEmptyReads: maxEmptyReads)
+    }
+
     public func fetchSummaries(
         _ set: String,
         request: FetchRequest,

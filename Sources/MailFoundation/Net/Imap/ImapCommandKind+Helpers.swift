@@ -5,6 +5,10 @@
 //
 
 public extension ImapCommandKind {
+    static func namespace() -> ImapCommandKind {
+        .namespace
+    }
+
     static func id(_ parameters: [String: String?]? = nil) -> ImapCommandKind {
         .id(ImapId.buildArguments(parameters))
     }

@@ -23,6 +23,7 @@ public enum ImapCommandKind: Sendable {
     case check
     case close
     case expunge
+    case namespace
     case id(String)
     case fetch(String, String)
     case store(String, String)
@@ -83,6 +84,8 @@ public enum ImapCommandKind: Sendable {
             return ImapCommand(tag: tag, name: "CLOSE")
         case .expunge:
             return ImapCommand(tag: tag, name: "EXPUNGE")
+        case .namespace:
+            return ImapCommand(tag: tag, name: "NAMESPACE")
         case let .id(arguments):
             return ImapCommand(tag: tag, name: "ID", arguments: arguments)
         case let .fetch(set, items):

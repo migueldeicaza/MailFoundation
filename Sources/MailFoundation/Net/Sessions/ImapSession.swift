@@ -276,6 +276,35 @@ public final class ImapSession {
         return response
     }
 
+    public func namespace() throws -> ImapNamespaceResponse? {
+        try ensureAuthenticated()
+        let command = client.send(.namespace)
+        try ensureWrite()
+        var result: ImapNamespaceResponse?
+        var reads = 0
+
+        while reads < maxReads {
+            let messages = client.receiveWithLiterals()
+            if messages.isEmpty {
+                reads += 1
+                continue
+            }
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let parsed = ImapNamespaceResponse.parse(message.line) {
+                    result = parsed
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return result
+                }
+            }
+        }
+        throw SessionError.timeout
+    }
+
     public func list(reference: String, mailbox: String) throws -> [ImapMailbox] {
         let responses = try listResponses(reference: reference, mailbox: mailbox)
         return responses.map { ImapMailbox(kind: $0.kind, name: $0.name, delimiter: $0.delimiter, attributes: $0.attributes) }

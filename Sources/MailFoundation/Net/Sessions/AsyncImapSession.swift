@@ -620,6 +620,36 @@ public actor AsyncImapSession {
         try await fetch(set, items: request.imapItemList, maxEmptyReads: maxEmptyReads)
     }
 
+    public func namespace(maxEmptyReads: Int = 10) async throws -> ImapNamespaceResponse? {
+        try await ensureAuthenticated()
+        let command = try await client.send(.namespace)
+        var emptyReads = 0
+        var response: ImapNamespaceResponse?
+
+        while emptyReads < maxEmptyReads {
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                emptyReads += 1
+                continue
+            }
+            emptyReads = 0
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let parsed = ImapNamespaceResponse.parse(message.line) {
+                    response = parsed
+                }
+                if let tagged = message.response, case let .tagged(tag) = tagged.kind, tag == command.tag {
+                    if tagged.isOk {
+                        return response
+                    }
+                    throw SessionError.imapError(status: tagged.status, text: tagged.text)
+                }
+            }
+        }
+
+        throw SessionError.timeout
+    }
+
     public func id(_ parameters: [String: String?]? = nil, maxEmptyReads: Int = 10) async throws -> ImapIdResponse? {
         let command = try await client.send(.id(ImapId.buildArguments(parameters)))
         var emptyReads = 0

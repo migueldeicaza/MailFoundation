@@ -185,6 +185,10 @@ public final class ImapMailStore: MailServiceBase<ImapResponse>, MailStore {
         try session.id(parameters)
     }
 
+    public func namespace() throws -> ImapNamespaceResponse? {
+        try session.namespace()
+    }
+
     public func fetchSummaries(_ set: String, request: FetchRequest, previewLength: Int = 512) throws -> [MessageSummary] {
         try requireSelectedFolder().fetchSummaries(set, request: request, previewLength: previewLength)
     }
