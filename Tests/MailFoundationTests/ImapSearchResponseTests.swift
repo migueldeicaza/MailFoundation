@@ -31,3 +31,23 @@ func imapSearchResponseParsesSearch() {
     #expect(response?.max == nil)
     #expect(response?.isUid == false)
 }
+
+@Test("IMAP search response idSet uses isUid to choose set type")
+func imapSearchResponseIdSetUsesUid() {
+    let search = ImapSearchResponse(ids: [1, 2, 3], isUid: false)
+    switch search.idSet() {
+    case let .sequence(set):
+        #expect(Array(set) == [1, 2, 3])
+    case .uid:
+        #expect(Bool(false))
+    }
+
+    let uidSearch = ImapSearchResponse(ids: [4, 5], isUid: true)
+    switch uidSearch.idSet(validity: 7) {
+    case .sequence:
+        #expect(Bool(false))
+    case let .uid(set):
+        #expect(set.validity == 7)
+        #expect(set.count == 2)
+    }
+}

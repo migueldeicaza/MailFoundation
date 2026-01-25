@@ -261,12 +261,44 @@ public actor AsyncImapFolder: AsyncMailFolder {
         try await session.search(query, maxEmptyReads: maxEmptyReads)
     }
 
+    public func searchIdSet(
+        _ criteria: String,
+        validity: UInt32 = 0,
+        maxEmptyReads: Int = 10
+    ) async throws -> ImapSearchIdSet {
+        try await search(criteria, maxEmptyReads: maxEmptyReads).idSet(validity: validity)
+    }
+
+    public func searchIdSet(
+        _ query: SearchQuery,
+        validity: UInt32 = 0,
+        maxEmptyReads: Int = 10
+    ) async throws -> ImapSearchIdSet {
+        try await search(query, maxEmptyReads: maxEmptyReads).idSet(validity: validity)
+    }
+
     public func uidSearch(_ criteria: String, maxEmptyReads: Int = 10) async throws -> ImapSearchResponse {
         try await session.uidSearch(criteria, maxEmptyReads: maxEmptyReads)
     }
 
     public func uidSearch(_ query: SearchQuery, maxEmptyReads: Int = 10) async throws -> ImapSearchResponse {
         try await session.uidSearch(query, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func uidSearchIdSet(
+        _ criteria: String,
+        validity: UInt32 = 0,
+        maxEmptyReads: Int = 10
+    ) async throws -> ImapSearchIdSet {
+        try await uidSearch(criteria, maxEmptyReads: maxEmptyReads).idSet(validity: validity)
+    }
+
+    public func uidSearchIdSet(
+        _ query: SearchQuery,
+        validity: UInt32 = 0,
+        maxEmptyReads: Int = 10
+    ) async throws -> ImapSearchIdSet {
+        try await uidSearch(query, maxEmptyReads: maxEmptyReads).idSet(validity: validity)
     }
 
     public func sort(
@@ -285,6 +317,28 @@ public actor AsyncImapFolder: AsyncMailFolder {
         maxEmptyReads: Int = 10
     ) async throws -> ImapSearchResponse {
         try await session.uidSort(orderBy, query: query, charset: charset, maxEmptyReads: maxEmptyReads)
+    }
+
+    public func sortIdSet(
+        _ orderBy: [OrderBy],
+        query: SearchQuery,
+        charset: String = "UTF-8",
+        validity: UInt32 = 0,
+        maxEmptyReads: Int = 10
+    ) async throws -> ImapSearchIdSet {
+        try await sort(orderBy, query: query, charset: charset, maxEmptyReads: maxEmptyReads)
+            .idSet(validity: validity)
+    }
+
+    public func uidSortIdSet(
+        _ orderBy: [OrderBy],
+        query: SearchQuery,
+        charset: String = "UTF-8",
+        validity: UInt32 = 0,
+        maxEmptyReads: Int = 10
+    ) async throws -> ImapSearchIdSet {
+        try await uidSort(orderBy, query: query, charset: charset, maxEmptyReads: maxEmptyReads)
+            .idSet(validity: validity)
     }
 
     public func fetchSummaries(_ set: String, request: FetchRequest, previewLength: Int = 512) async throws -> [MessageSummary] {

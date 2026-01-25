@@ -225,6 +225,14 @@ public final class ImapFolder: MailFolderBase {
         try session.search(query)
     }
 
+    public func searchIdSet(_ criteria: String, validity: UInt32 = 0) throws -> ImapSearchIdSet {
+        try search(criteria).idSet(validity: validity)
+    }
+
+    public func searchIdSet(_ query: SearchQuery, validity: UInt32 = 0) throws -> ImapSearchIdSet {
+        try search(query).idSet(validity: validity)
+    }
+
     public func uidSearch(_ criteria: String) throws -> ImapSearchResponse {
         try session.uidSearch(criteria)
     }
@@ -233,12 +241,38 @@ public final class ImapFolder: MailFolderBase {
         try session.uidSearch(query)
     }
 
+    public func uidSearchIdSet(_ criteria: String, validity: UInt32 = 0) throws -> ImapSearchIdSet {
+        try uidSearch(criteria).idSet(validity: validity)
+    }
+
+    public func uidSearchIdSet(_ query: SearchQuery, validity: UInt32 = 0) throws -> ImapSearchIdSet {
+        try uidSearch(query).idSet(validity: validity)
+    }
+
     public func sort(_ orderBy: [OrderBy], query: SearchQuery, charset: String = "UTF-8") throws -> ImapSearchResponse {
         try session.sort(orderBy, query: query, charset: charset)
     }
 
     public func uidSort(_ orderBy: [OrderBy], query: SearchQuery, charset: String = "UTF-8") throws -> ImapSearchResponse {
         try session.uidSort(orderBy, query: query, charset: charset)
+    }
+
+    public func sortIdSet(
+        _ orderBy: [OrderBy],
+        query: SearchQuery,
+        charset: String = "UTF-8",
+        validity: UInt32 = 0
+    ) throws -> ImapSearchIdSet {
+        try sort(orderBy, query: query, charset: charset).idSet(validity: validity)
+    }
+
+    public func uidSortIdSet(
+        _ orderBy: [OrderBy],
+        query: SearchQuery,
+        charset: String = "UTF-8",
+        validity: UInt32 = 0
+    ) throws -> ImapSearchIdSet {
+        try uidSort(orderBy, query: query, charset: charset).idSet(validity: validity)
     }
 
     public func fetchSummaries(_ set: String, request: FetchRequest, previewLength: Int = 512) throws -> [MessageSummary] {

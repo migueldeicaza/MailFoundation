@@ -135,6 +135,33 @@ func imapFolderSort() throws {
     #expect(response.ids == [2, 1])
 }
 
+@Test("IMAP folder search idSet")
+func imapFolderSearchIdSet() throws {
+    let transport = TestTransport(incoming: [
+        Array("* OK Ready\r\n".utf8),
+        Array("A0001 OK LOGIN\r\n".utf8),
+        Array("* 1 EXISTS\r\n".utf8),
+        Array("A0002 OK EXAMINE\r\n".utf8),
+        Array("* SEARCH 3 1\r\n".utf8),
+        Array("A0003 OK SEARCH\r\n".utf8)
+    ])
+    let store = ImapMailStore(transport: transport)
+    _ = try store.connect()
+    _ = try store.authenticate(user: "user", password: "pass")
+
+    let inbox = try store.openInbox(access: .readOnly)
+    let idSet = try inbox.searchIdSet(.all)
+
+    switch idSet {
+    case let .sequence(set):
+        #expect(set.count == 2)
+        #expect(set.contains(3))
+        #expect(set.contains(1))
+    case .uid:
+        #expect(Bool(false))
+    }
+}
+
 @available(macOS 10.15, iOS 13.0, *)
 @Test("Async IMAP store open inbox")
 func asyncImapStoreOpenInbox() async throws {
@@ -185,6 +212,39 @@ func asyncImapFolderSort() async throws {
     let response = try await sortTask.value
 
     #expect(response.ids == [2, 1])
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP folder uidSearch idSet")
+func asyncImapFolderUidSearchIdSet() async throws {
+    let transport = AsyncStreamTransport()
+    let store = AsyncImapMailStore(transport: transport)
+
+    let connectTask = Task { try await store.connect() }
+    await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("A0001 OK LOGIN\r\n".utf8))
+    _ = try await authTask.value
+
+    let openTask = Task { try await store.openInbox(access: .readOnly) }
+    await transport.yieldIncoming(Array("* 1 EXISTS\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK EXAMINE\r\n".utf8))
+    let inbox = try await openTask.value
+
+    let searchTask = Task { try await inbox.uidSearchIdSet(.all, validity: 9) }
+    await transport.yieldIncoming(Array("* SEARCH 7 8\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK UID SEARCH\r\n".utf8))
+    let idSet = try await searchTask.value
+
+    switch idSet {
+    case let .uid(set):
+        #expect(set.validity == 9)
+        #expect(set.count == 2)
+    case .sequence:
+        #expect(Bool(false))
+    }
 }
 
 @available(macOS 10.15, iOS 13.0, *)

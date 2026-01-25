@@ -63,6 +63,11 @@ public struct ImapSearchResponse: Sendable, Equatable {
     }
 }
 
+public enum ImapSearchIdSet: Sendable {
+    case sequence(SequenceSet)
+    case uid(UniqueIdSet)
+}
+
 public extension ImapSearchResponse {
     func sequenceSet() -> SequenceSet {
         SequenceSet(ids.map { Int($0) })
@@ -73,5 +78,12 @@ public extension ImapSearchResponse {
         var set = UniqueIdSet(validity: validity)
         set.add(contentsOf: uniqueIds)
         return set
+    }
+
+    func idSet(validity: UInt32 = 0) -> ImapSearchIdSet {
+        if isUid {
+            return .uid(uniqueIdSet(validity: validity))
+        }
+        return .sequence(sequenceSet())
     }
 }
