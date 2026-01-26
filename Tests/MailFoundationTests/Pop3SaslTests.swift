@@ -160,6 +160,34 @@ func syncPop3SaslXoauth2ViaCapa() throws {
     #expect(second == "AUTH XOAUTH2 \(Pop3Sasl.xoauth2(username: "user@example.com", accessToken: "token").initialResponse ?? "")\r\n")
 }
 
+@Test("Sync POP3 SASL XOAUTH2 via CAPA unsupported")
+func syncPop3SaslXoauth2ViaCapaUnsupported() throws {
+    let transport = TestTransport(incoming: [
+        Array("+OK Ready\r\n".utf8),
+        Array("+OK Capability list follows\r\nSASL PLAIN\r\n.\r\n".utf8)
+    ])
+    let session = Pop3Session(transport: transport, maxReads: 3)
+    _ = try session.connect()
+
+    #expect(throws: SessionError.pop3Error(message: "XOAUTH2 is not supported.")) {
+        _ = try session.authenticateSasl(user: "user@example.com", accessToken: "token")
+    }
+}
+
+@Test("Sync POP3 SASL CRAM-MD5 via CAPA unsupported")
+func syncPop3SaslCramMd5ViaCapaUnsupported() throws {
+    let transport = TestTransport(incoming: [
+        Array("+OK Ready\r\n".utf8),
+        Array("+OK Capability list follows\r\nSASL XOAUTH2\r\n.\r\n".utf8)
+    ])
+    let session = Pop3Session(transport: transport, maxReads: 3)
+    _ = try session.connect()
+
+    #expect(throws: SessionError.pop3Error(message: "No supported SASL mechanisms.")) {
+        _ = try session.authenticateSasl(user: "user", password: "pass")
+    }
+}
+
 @available(macOS 10.15, iOS 13.0, *)
 @Test("Async POP3 SASL PLAIN authentication")
 func asyncPop3SaslPlain() async throws {
@@ -291,4 +319,40 @@ func asyncPop3SaslXoauth2ViaCapa() async throws {
     let second = String(decoding: sent.dropFirst().first ?? [], as: UTF8.self)
     #expect(first == "CAPA\r\n")
     #expect(second == "AUTH XOAUTH2 \(Pop3Sasl.xoauth2(username: "user@example.com", accessToken: "token").initialResponse ?? "")\r\n")
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async POP3 SASL XOAUTH2 via CAPA unsupported")
+func asyncPop3SaslXoauth2ViaCapaUnsupported() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncPop3Session(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("+OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    await #expect(throws: SessionError.pop3Error(message: "XOAUTH2 is not supported.")) {
+        let authTask = Task {
+            try await session.authenticateSasl(user: "user@example.com", accessToken: "token")
+        }
+        await transport.yieldIncoming(Array("+OK Capability list follows\r\nSASL PLAIN\r\n.\r\n".utf8))
+        _ = try await authTask.value
+    }
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async POP3 SASL CRAM-MD5 via CAPA unsupported")
+func asyncPop3SaslCramMd5ViaCapaUnsupported() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncPop3Session(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("+OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    await #expect(throws: SessionError.pop3Error(message: "No supported SASL mechanisms.")) {
+        let authTask = Task { try await session.authenticateSasl(user: "user", password: "pass") }
+        await transport.yieldIncoming(Array("+OK Capability list follows\r\nSASL XOAUTH2\r\n.\r\n".utf8))
+        _ = try await authTask.value
+    }
 }
