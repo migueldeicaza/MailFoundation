@@ -28,7 +28,7 @@ public struct ImapVanishedResponse: Sendable, Equatable {
             rest = rest[rest.index(after: close)...].trimmingCharacters(in: .whitespaces)
         }
 
-        guard let set = UniqueIdSet.tryParse(String(rest), validity: validity) else {
+        guard let set = try? UniqueIdSet(parsing: String(rest), validity: validity) else {
             return nil
         }
         return ImapVanishedResponse(earlier: earlier, uids: set)

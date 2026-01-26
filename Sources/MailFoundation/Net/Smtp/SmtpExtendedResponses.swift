@@ -74,16 +74,16 @@ public enum SmtpAddressQueryParser {
         var seen: Set<String> = []
 
         for line in lines {
-            if let list = AddressParser.tryParseList(line) {
+            if let list = try? AddressParser.parseList(line) {
                 addMailboxes(list.mailboxes, to: &mailboxes, seen: &seen)
                 continue
             }
-            if let mailbox = AddressParser.tryParseMailbox(line) {
+            if let mailbox = try? AddressParser.parseMailbox(line) {
                 addMailboxes([mailbox], to: &mailboxes, seen: &seen)
                 continue
             }
             if let angle = extractAngleAddress(from: line),
-               let mailbox = AddressParser.tryParseMailbox(angle) {
+               let mailbox = try? AddressParser.parseMailbox(angle) {
                 addMailboxes([mailbox], to: &mailboxes, seen: &seen)
                 continue
             }

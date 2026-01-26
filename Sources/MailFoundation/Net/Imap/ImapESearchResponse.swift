@@ -54,7 +54,7 @@ public struct ImapESearchResponse: Sendable, Equatable {
 
             switch key {
             case "ALL":
-                if let set = SequenceSet.tryParse(value) {
+                if let set = try? SequenceSet(parsing: value) {
                     ids = Array(set)
                 }
             case "COUNT":

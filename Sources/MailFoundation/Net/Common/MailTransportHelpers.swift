@@ -202,7 +202,7 @@ public extension AsyncMessageTransport {
 
 private func firstMailbox(in headers: HeaderList, id: HeaderId) -> MailboxAddress? {
     for header in headers where header.id == id {
-        if let mailbox = AddressParser.tryParseMailbox(header.value) {
+        if let mailbox = try? AddressParser.parseMailbox(header.value) {
             return mailbox
         }
     }
@@ -212,7 +212,7 @@ private func firstMailbox(in headers: HeaderList, id: HeaderId) -> MailboxAddres
 private func mailboxes(in headers: HeaderList, id: HeaderId) -> [MailboxAddress] {
     var result: [MailboxAddress] = []
     for header in headers where header.id == id {
-        if let list = AddressParser.tryParseList(header.value) {
+        if let list = try? AddressParser.parseList(header.value) {
             result.append(contentsOf: list.mailboxes)
         }
     }

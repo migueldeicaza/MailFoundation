@@ -116,14 +116,14 @@ public struct SequenceSet: Sendable, Sequence, CustomStringConvertible {
         ranges.map { $0.serialized() }.joined(separator: ",")
     }
 
-    public static func tryParse(_ token: String) -> SequenceSet? {
+    public init(parsing token: String) throws {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            return nil
+            throw SequenceSetParseError.invalidToken
         }
 
         let parts = trimmed.split(separator: ",", omittingEmptySubsequences: false)
-        guard !parts.isEmpty else { return nil }
+        guard !parts.isEmpty else { throw SequenceSetParseError.invalidToken }
 
         var set = SequenceSet()
         var order: SortOrder = .none
@@ -132,10 +132,10 @@ public struct SequenceSet: Sendable, Sequence, CustomStringConvertible {
 
         for part in parts {
             let segment = part.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !segment.isEmpty else { return nil }
+            guard !segment.isEmpty else { throw SequenceSetParseError.invalidToken }
             let pieces = segment.split(separator: ":", omittingEmptySubsequences: false)
             if pieces.count == 1 {
-                guard let value = parseToken(String(pieces[0])) else { return nil }
+                guard let value = Self.parseToken(String(pieces[0])) else { throw SequenceSetParseError.invalidToken }
                 set.ranges.append(Range(start: value, end: value))
                 set.totalCount += 1
 
@@ -151,8 +151,8 @@ public struct SequenceSet: Sendable, Sequence, CustomStringConvertible {
                 }
                 prev = value
             } else if pieces.count == 2 {
-                guard let start = parseToken(String(pieces[0])) else { return nil }
-                guard let end = parseToken(String(pieces[1])) else { return nil }
+                guard let start = Self.parseToken(String(pieces[0])) else { throw SequenceSetParseError.invalidToken }
+                guard let end = Self.parseToken(String(pieces[1])) else { throw SequenceSetParseError.invalidToken }
 
                 let range = Range(start: start, end: end)
                 set.totalCount += Int64(range.count)
@@ -170,19 +170,12 @@ public struct SequenceSet: Sendable, Sequence, CustomStringConvertible {
                 }
                 prev = end
             } else {
-                return nil
+                throw SequenceSetParseError.invalidToken
             }
         }
 
         set.sortOrder = sorted ? order : .none
-        return set
-    }
-
-    public static func parse(_ token: String) throws -> SequenceSet {
-        guard let set = tryParse(token) else {
-            throw SequenceSetParseError.invalidToken
-        }
-        return set
+        self = set
     }
 
     private static func parseToken(_ value: String) -> UInt32? {

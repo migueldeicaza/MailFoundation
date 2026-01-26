@@ -42,17 +42,17 @@ public extension Envelope {
         case "date":
             date = DateUtils.tryParse(value)
         case "from":
-            replaceAddressList(from, with: AddressParser.tryParseList(value))
+            replaceAddressList(from, with: try? AddressParser.parseList(value))
         case "sender":
-            replaceAddressList(sender, with: AddressParser.tryParseList(value))
+            replaceAddressList(sender, with: try? AddressParser.parseList(value))
         case "reply-to":
-            replaceAddressList(replyTo, with: AddressParser.tryParseList(value))
+            replaceAddressList(replyTo, with: try? AddressParser.parseList(value))
         case "to":
-            replaceAddressList(to, with: AddressParser.tryParseList(value))
+            replaceAddressList(to, with: try? AddressParser.parseList(value))
         case "cc":
-            replaceAddressList(cc, with: AddressParser.tryParseList(value))
+            replaceAddressList(cc, with: try? AddressParser.parseList(value))
         case "bcc":
-            replaceAddressList(bcc, with: AddressParser.tryParseList(value))
+            replaceAddressList(bcc, with: try? AddressParser.parseList(value))
         case "message-id":
             messageId = MessageIdList.parseMessageId(value) ?? value
         case "in-reply-to":

@@ -71,16 +71,16 @@ public struct UniqueIdRange: Sendable, Sequence, CustomStringConvertible {
         return uid.id <= start && uid.id >= end
     }
 
-    public func index(of uid: UniqueId) -> Int {
+    public func index(of uid: UniqueId) -> Int? {
         if start <= end {
             guard uid.id >= start && uid.id <= end else {
-                return -1
+                return nil
             }
             return Int(uid.id - start)
         }
 
         guard uid.id <= start && uid.id >= end else {
-            return -1
+            return nil
         }
         return Int(start - uid.id)
     }
@@ -140,7 +140,7 @@ public struct UniqueIdRange: Sendable, Sequence, CustomStringConvertible {
         return "\(start):\(end)"
     }
 
-    public static func tryParse(_ token: String, validity: UInt32 = 0) -> UniqueIdRange? {
+    public init(parsing token: String, validity: UInt32 = 0) throws {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         let bytes = Array(trimmed.utf8)
         var index = 0
@@ -157,43 +157,38 @@ public struct UniqueIdRange: Sendable, Sequence, CustomStringConvertible {
         }
 
         skipWhitespace(bytes, &index)
-        guard let start = UniqueId.parseNonZeroUInt32(bytes: bytes, index: &index) else {
-            return nil
+        guard let parsedStart = UniqueId.parseNonZeroUInt32(bytes: bytes, index: &index) else {
+            throw UniqueIdRangeParseError.invalidToken
         }
 
         skipWhitespace(bytes, &index)
         guard index < bytes.count, bytes[index] == 58 else {
-            return nil
+            throw UniqueIdRangeParseError.invalidToken
         }
         index += 1
         skipWhitespace(bytes, &index)
 
-        var end: UInt32
+        let parsedEnd: UInt32
         if index < bytes.count, bytes[index] == 42 {
             index += 1
             skipWhitespace(bytes, &index)
             guard index == bytes.count else {
-                return nil
+                throw UniqueIdRangeParseError.invalidToken
             }
-            end = UInt32.max
+            parsedEnd = UInt32.max
         } else {
-            guard let parsedEnd = UniqueId.parseNonZeroUInt32(bytes: bytes, index: &index) else {
-                return nil
+            guard let end = UniqueId.parseNonZeroUInt32(bytes: bytes, index: &index) else {
+                throw UniqueIdRangeParseError.invalidToken
             }
             skipWhitespace(bytes, &index)
             guard index == bytes.count else {
-                return nil
+                throw UniqueIdRangeParseError.invalidToken
             }
-            end = parsedEnd
+            parsedEnd = end
         }
 
-        return UniqueIdRange(validity: validity, start: start, end: end)
-    }
-
-    public static func parse(_ token: String, validity: UInt32 = 0) throws -> UniqueIdRange {
-        guard let range = tryParse(token, validity: validity) else {
-            throw UniqueIdRangeParseError.invalidToken
-        }
-        return range
+        self.validity = validity
+        self.start = parsedStart
+        self.end = parsedEnd
     }
 }

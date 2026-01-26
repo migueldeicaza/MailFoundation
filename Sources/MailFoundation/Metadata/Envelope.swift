@@ -493,21 +493,40 @@ public final class Envelope {
         return (true, envelope)
     }
 
-    public static func tryParse(_ text: String) -> Envelope? {
+    public convenience init(parsing text: String) throws {
         var index = 0
         let bytes = Array(text.utf8)
-        let result = tryParseEnvelope(bytes, index: &index)
-        guard result.success, index == bytes.count else {
-            return nil
-        }
-        return result.value
-    }
-
-    public static func parse(_ text: String) throws -> Envelope {
-        guard let envelope = tryParse(text) else {
+        let result = Self.tryParseEnvelope(bytes, index: &index)
+        guard result.success, index == bytes.count, let envelope = result.value else {
             throw EnvelopeParseError.invalidToken
         }
-        return envelope
+
+        self.init()
+        self.date = envelope.date
+        self.subject = envelope.subject
+        self.from.addRange(Array(envelope.from))
+        self.sender.addRange(Array(envelope.sender))
+        self.replyTo.addRange(Array(envelope.replyTo))
+        self.to.addRange(Array(envelope.to))
+        self.cc.addRange(Array(envelope.cc))
+        self.bcc.addRange(Array(envelope.bcc))
+        self.inReplyTo = envelope.inReplyTo
+        self.messageId = envelope.messageId
+        self.listId = envelope.listId
+        self.listArchive = envelope.listArchive
+        self.listHelp = envelope.listHelp
+        self.listOwner = envelope.listOwner
+        self.listPost = envelope.listPost
+        self.listSubscribe = envelope.listSubscribe
+        self.listUnsubscribe = envelope.listUnsubscribe
+        self.listUnsubscribePost = envelope.listUnsubscribePost
+        self.dkimSignatures = envelope.dkimSignatures
+        self.domainKeySignatures = envelope.domainKeySignatures
+        self.authenticationResults = envelope.authenticationResults
+        self.arcAuthenticationResults = envelope.arcAuthenticationResults
+        self.receivedSpf = envelope.receivedSpf
+        self.arcSeals = envelope.arcSeals
+        self.arcMessageSignatures = envelope.arcMessageSignatures
     }
 }
 

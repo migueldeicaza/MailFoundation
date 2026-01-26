@@ -44,7 +44,7 @@ public struct ImapEnvelope: Sendable, Equatable {
     }
 
     public static func parse(_ text: String) -> ImapEnvelope? {
-        guard let envelope = Envelope.tryParse(text) else { return nil }
+        guard let envelope = try? Envelope(parsing: text) else { return nil }
         return ImapEnvelope(envelope: envelope)
     }
 

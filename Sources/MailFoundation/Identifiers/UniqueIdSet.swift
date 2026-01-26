@@ -27,16 +27,16 @@ public struct UniqueIdSet: Sendable, Sequence, CustomStringConvertible {
             return uid <= start && uid >= end
         }
 
-        func index(of uid: UInt32) -> Int {
+        func index(of uid: UInt32) -> Int? {
             if start <= end {
                 guard uid >= start && uid <= end else {
-                    return -1
+                    return nil
                 }
                 return Int(uid - start)
             }
 
             guard uid <= start && uid >= end else {
-                return -1
+                return nil
             }
             return Int(start - uid)
         }
@@ -126,9 +126,9 @@ public struct UniqueIdSet: Sendable, Sequence, CustomStringConvertible {
         totalCount == 0
     }
 
-    private func indexOfRange(for uid: UInt32) -> Int {
+    private func indexOfRange(for uid: UInt32) -> Int? {
         guard !ranges.isEmpty else {
-            return -1
+            return nil
         }
 
         if sortOrder != .none {
@@ -141,10 +141,10 @@ public struct UniqueIdSet: Sendable, Sequence, CustomStringConvertible {
             }
         }
 
-        return -1
+        return nil
     }
 
-    private func binarySearch(_ uid: UInt32) -> Int {
+    private func binarySearch(_ uid: UInt32) -> Int? {
         var minIndex = 0
         var maxIndex = ranges.count
 
@@ -173,7 +173,7 @@ public struct UniqueIdSet: Sendable, Sequence, CustomStringConvertible {
             }
         }
 
-        return -1
+        return nil
     }
 
     private mutating func binaryInsertAscending(_ uid: UInt32) {
@@ -289,7 +289,7 @@ public struct UniqueIdSet: Sendable, Sequence, CustomStringConvertible {
     }
 
     private mutating func append(_ uid: UInt32) {
-        if indexOfRange(for: uid) != -1 {
+        if indexOfRange(for: uid) != nil {
             return
         }
 
@@ -350,18 +350,18 @@ public struct UniqueIdSet: Sendable, Sequence, CustomStringConvertible {
     }
 
     public func contains(_ uid: UniqueId) -> Bool {
-        indexOfRange(for: uid.id) != -1
+        indexOfRange(for: uid.id) != nil
     }
 
-    public func index(of uid: UniqueId) -> Int {
+    public func index(of uid: UniqueId) -> Int? {
         var offset = 0
         for range in ranges {
-            if range.contains(uid.id) {
-                return offset + range.index(of: uid.id)
+            if range.contains(uid.id), let rangeIndex = range.index(of: uid.id) {
+                return offset + rangeIndex
             }
             offset += range.count
         }
-        return -1
+        return nil
     }
 
     public func uniqueId(at index: Int) -> UniqueId {
@@ -400,8 +400,7 @@ public struct UniqueIdSet: Sendable, Sequence, CustomStringConvertible {
 
     @discardableResult
     public mutating func remove(_ uid: UniqueId) -> Bool {
-        let rangeIndex = indexOfRange(for: uid.id)
-        guard rangeIndex != -1 else {
+        guard let rangeIndex = indexOfRange(for: uid.id) else {
             return false
         }
 
@@ -687,17 +686,13 @@ public struct UniqueIdSet: Sendable, Sequence, CustomStringConvertible {
         return set
     }
 
-    public static func tryParse(_ token: String, validity: UInt32 = 0) -> UniqueIdSet? {
+    public init(parsing token: String, validity: UInt32 = 0) throws {
         var minValue: UniqueId?
         var maxValue: UniqueId?
-        return tryParse(token, validity: validity, minValue: &minValue, maxValue: &maxValue)
-    }
-
-    public static func parse(_ token: String, validity: UInt32 = 0) throws -> UniqueIdSet {
-        guard let set = tryParse(token, validity: validity) else {
+        guard let set = Self.tryParse(token, validity: validity, minValue: &minValue, maxValue: &maxValue) else {
             throw UniqueIdSetParseError.invalidToken
         }
-        return set
+        self = set
     }
 
     private static func parseUidOrStar(bytes: [UInt8], index: inout Int) -> UInt32? {

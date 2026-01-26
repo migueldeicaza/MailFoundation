@@ -53,8 +53,8 @@ public struct ImapResponseCode: Sendable, Equatable {
             if let number = UInt32(value) {
                 let sourceToken = tokens.count > 2 ? String(tokens[2]) : nil
                 let destinationToken = tokens.count > 3 ? String(tokens[3]) : nil
-                let source = sourceToken.flatMap { UniqueIdSet.tryParse($0, validity: number) }
-                let destination = destinationToken.flatMap { UniqueIdSet.tryParse($0, validity: number) }
+                let source = sourceToken.flatMap { try? UniqueIdSet(parsing: $0, validity: number) }
+                let destination = destinationToken.flatMap { try? UniqueIdSet(parsing: $0, validity: number) }
                 let copyUid = ImapCopyUid(uidValidity: number, source: source, destination: destination)
                 return ImapResponseCode(kind: .copyUid(copyUid))
             }

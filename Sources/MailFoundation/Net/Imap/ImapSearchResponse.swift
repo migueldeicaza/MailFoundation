@@ -74,7 +74,7 @@ public extension ImapSearchResponse {
     }
 
     func uniqueIdSet(validity: UInt32 = 0) -> UniqueIdSet {
-        let uniqueIds = ids.compactMap { UniqueId.tryParse(String($0), validity: validity) }
+        let uniqueIds = ids.compactMap { try? UniqueId(parsing: String($0), validity: validity) }
         var set = UniqueIdSet(validity: validity)
         set.add(contentsOf: uniqueIds)
         return set

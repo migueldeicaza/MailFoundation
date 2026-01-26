@@ -15,31 +15,31 @@ func uniqueIdBasics() {
 
 @Test("UniqueId parsing")
 func uniqueIdParsing() throws {
-    #expect(UniqueId.tryParse("1") != nil)
-    #expect(UniqueId.tryParse("0") == nil)
-    #expect(UniqueId.tryParse("abc") == nil)
-    #expect(UniqueId.tryParse("4294967296") == nil)
-    #expect(UniqueId.tryParse(" 7 ")?.id == 7)
+    #expect((try? UniqueId(parsing: "1")) != nil)
+    #expect((try? UniqueId(parsing: "0")) == nil)
+    #expect((try? UniqueId(parsing: "abc")) == nil)
+    #expect((try? UniqueId(parsing: "4294967296")) == nil)
+    #expect((try? UniqueId(parsing: " 7 "))?.id == 7)
 
-    let parsed = try UniqueId.parse("12", validity: 9)
+    let parsed = try UniqueId(parsing: "12", validity: 9)
     #expect(parsed.id == 12)
     #expect(parsed.validity == 9)
 }
 
 @Test("UniqueIdRange parsing")
 func uniqueIdRangeParsing() throws {
-    let range = try UniqueIdRange.parse("2:4", validity: 7)
+    let range = try UniqueIdRange(parsing: "2:4", validity: 7)
     #expect(range.count == 3)
     #expect(range.contains(UniqueId(id: 3)))
     #expect(range.sortOrder == .ascending)
     #expect(range.description == "2:4")
 
-    let anyRange = try UniqueIdRange.parse("2:*")
+    let anyRange = try UniqueIdRange(parsing: "2:*")
     #expect(anyRange.description == "2:*")
 
-    let spacedRange = try UniqueIdRange.parse(" 2 : * ")
+    let spacedRange = try UniqueIdRange(parsing: " 2 : * ")
     #expect(spacedRange.description == "2:*")
-    #expect(UniqueIdRange.tryParse("2:") == nil)
+    #expect((try? UniqueIdRange(parsing: "2:")) == nil)
 }
 
 @Test("UniqueIdSet add and serialize")
@@ -64,28 +64,28 @@ func uniqueIdSetAddAndSerialize() throws {
 
 @Test("UniqueIdSet parsing")
 func uniqueIdSetParsing() throws {
-    let set = try UniqueIdSet.parse("1:3,5,7:6", validity: 11)
+    let set = try UniqueIdSet(parsing: "1:3,5,7:6", validity: 11)
     #expect(set.count == 6)
     #expect(set.validity == 11)
     #expect(set.description == "1:3,5,7:6")
 
-    let starSet = try UniqueIdSet.parse("1:*,*", validity: 0)
+    let starSet = try UniqueIdSet(parsing: "1:*,*", validity: 0)
     #expect(starSet.description == "1:*,*")
 
-    let spacedSet = try UniqueIdSet.parse("1 : 3 , 5 , 7 : 6")
+    let spacedSet = try UniqueIdSet(parsing: "1 : 3 , 5 , 7 : 6")
     #expect(spacedSet.description == "1:3,5,7:6")
-    #expect(UniqueIdSet.tryParse("0") == nil)
+    #expect((try? UniqueIdSet(parsing: "0")) == nil)
 }
 
 @Test("SequenceSet parsing")
 func sequenceSetParsing() throws {
-    let set = try SequenceSet.parse("1:3,5,*")
+    let set = try SequenceSet(parsing: "1:3,5,*")
     #expect(set.description == "1:3,5,*")
     #expect(set.contains(1))
     #expect(set.contains(UInt32.max))
-    #expect(SequenceSet.tryParse("0") == nil)
+    #expect((try? SequenceSet(parsing: "0")) == nil)
 
-    let spaced = try SequenceSet.parse(" 2 : 4 , 6 ")
+    let spaced = try SequenceSet(parsing: " 2 : 4 , 6 ")
     #expect(spaced.description == "2:4,6")
 }
 
@@ -131,7 +131,7 @@ func uniqueIdMapMapping() {
 
 @Test("IMAP command helpers")
 func imapCommandHelpers() throws {
-    let seqSet = try SequenceSet.parse("1:3")
+    let seqSet = try SequenceSet(parsing: "1:3")
     let fetch = ImapCommandKind.fetch(seqSet, items: "FLAGS").command(tag: "A0001")
     #expect(fetch.serialized == "A0001 FETCH 1:3 FLAGS\r\n")
 
@@ -620,21 +620,21 @@ func envelopeEncodeAndParse() throws {
     envelope.messageId = "msgid"
 
     let encoded = envelope.toString()
-    let parsed = try Envelope.parse(encoded)
+    let parsed = try Envelope(parsing: encoded)
 
     #expect(parsed.subject == "Hello")
     #expect(parsed.from.count == 1)
     let parsedFrom = parsed.from[parsed.from.startIndex] as? MailboxAddress
     #expect(parsedFrom?.address == "alice@example.com")
     #expect(parsed.messageId == "msgid")
-    #expect(Envelope.tryParse("NIL") == nil)
-    #expect(Envelope.tryParse("nil") == nil)
+    #expect((try? Envelope(parsing: "NIL")) == nil)
+    #expect((try? Envelope(parsing: "nil")) == nil)
 }
 
 @Test("Envelope literal parsing")
 func envelopeLiteralParsing() throws {
     let text = "(\"Wed, 01 Jan 2020 00:00:00 +0000\" {5}\r\nHello NIL NIL NIL NIL NIL NIL NIL NIL)"
-    let envelope = try Envelope.parse(text)
+    let envelope = try Envelope(parsing: text)
     #expect(envelope.subject == "Hello")
 }
 

@@ -15,10 +15,6 @@ public enum AddressParser {
         try InternetAddressList(parsing: value)
     }
 
-    public static func tryParseList(_ value: String) -> InternetAddressList? {
-        try? InternetAddressList(parsing: value)
-    }
-
     public static func parseMailbox(_ value: String) throws -> MailboxAddress {
         let list = try InternetAddressList(parsing: value)
         for address in list {
@@ -27,15 +23,5 @@ public enum AddressParser {
             }
         }
         throw AddressParserError.noMailboxFound
-    }
-
-    public static func tryParseMailbox(_ value: String) -> MailboxAddress? {
-        guard let list = tryParseList(value) else { return nil }
-        for address in list {
-            if let mailbox = address as? MailboxAddress {
-                return mailbox
-            }
-        }
-        return nil
     }
 }

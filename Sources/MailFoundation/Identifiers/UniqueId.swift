@@ -45,22 +45,16 @@ public struct UniqueId: Hashable, Comparable, Sendable, CustomStringConvertible 
         String(id)
     }
 
-    public static func tryParse(_ token: String, validity: UInt32 = 0) -> UniqueId? {
+    public init(parsing token: String, validity: UInt32 = 0) throws {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         let bytes = Array(trimmed.utf8)
         var index = 0
-        guard let parsed = parseNonZeroUInt32(bytes: bytes, index: &index), index == bytes.count else {
-            return nil
-        }
-
-        return UniqueId(validity: validity, id: parsed)
-    }
-
-    public static func parse(_ token: String, validity: UInt32 = 0) throws -> UniqueId {
-        guard let value = tryParse(token, validity: validity) else {
+        guard let parsed = Self.parseNonZeroUInt32(bytes: bytes, index: &index), index == bytes.count else {
             throw UniqueIdParseError.invalidToken
         }
-        return value
+
+        self.validity = validity
+        self.id = parsed
     }
 
     internal static func parseNonZeroUInt32(bytes: [UInt8], index: inout Int) -> UInt32? {
