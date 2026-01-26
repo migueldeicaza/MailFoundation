@@ -293,19 +293,74 @@ public enum Pop3Sasl {
         )
     }
 
+    /// Creates a GSSAPI (Kerberos) SASL authentication configuration.
+    ///
+    /// GSSAPI provides Kerberos-based authentication, commonly used in
+    /// enterprise environments with Active Directory.
+    ///
+    /// - Parameters:
+    ///   - servicePrincipalName: The SPN (e.g., "pop/mail.example.com"). If nil, defaults to "pop/{host}".
+    ///   - host: The server hostname (used to build default SPN).
+    ///   - username: Optional username for credential acquisition.
+    ///   - password: Optional password for credential acquisition.
+    /// - Returns: A ``Pop3Authentication`` configured for GSSAPI, or nil if GSSAPI is unavailable.
+    ///
+    /// ## Example
+    ///
+    /// ```swift
+    /// let auth = Pop3Sasl.gssapi(host: "mail.example.com")
+    /// // Uses default Kerberos credentials from credential cache
+    /// ```
+    public static func gssapi(
+        servicePrincipalName: String? = nil,
+        host: String? = nil,
+        username: String? = nil,
+        password: String? = nil
+    ) -> Pop3Authentication? {
+        guard GssapiContext.isAvailable else { return nil }
+
+        let spn = servicePrincipalName ?? (host.map { "pop@\($0)" } ?? "pop")
+        let state = Pop3GssapiSaslState(
+            servicePrincipalName: spn,
+            username: username,
+            password: password
+        )
+
+        // Generate initial token
+        let initialToken: String?
+        do {
+            let token = try state.context.initSecContext(inputToken: nil)
+            initialToken = token.isEmpty ? nil : token.base64EncodedString()
+        } catch {
+            return nil
+        }
+
+        let responder: @Sendable (String) throws -> String = { challengeBase64 in
+            try state.processChallenge(challengeBase64)
+        }
+
+        return Pop3Authentication(
+            mechanism: "GSSAPI",
+            initialResponse: initialToken,
+            responder: responder
+        )
+    }
+
     /// Chooses the best available authentication mechanism.
     ///
     /// This method selects the most secure mechanism that is both supported
     /// by the server and available on this platform. The preference order is:
-    /// 1. CRAM-MD5 (if CryptoKit is available)
-    /// 2. NTLM
-    /// 3. PLAIN
-    /// 4. LOGIN
+    /// 1. GSSAPI (Kerberos, if available)
+    /// 2. CRAM-MD5 (if CryptoKit is available)
+    /// 3. NTLM
+    /// 4. PLAIN
+    /// 5. LOGIN
     ///
     /// - Parameters:
     ///   - username: The username.
     ///   - password: The user's password.
     ///   - mechanisms: The mechanisms supported by the server.
+    ///   - host: Optional server hostname for GSSAPI SPN.
     /// - Returns: A ``Pop3Authentication`` for the best available mechanism, or nil if none match.
     ///
     /// ## Example
@@ -323,9 +378,15 @@ public enum Pop3Sasl {
     public static func chooseAuthentication(
         username: String,
         password: String,
-        mechanisms: [String]
+        mechanisms: [String],
+        host: String? = nil
     ) -> Pop3Authentication? {
         let normalized = mechanisms.map { $0.uppercased() }
+        if normalized.contains("GSSAPI"),
+           let auth = gssapi(host: host, username: username, password: password)
+        {
+            return auth
+        }
         if normalized.contains("CRAM-MD5"), let cram = cramMd5(username: username, password: password) {
             return cram
         }
@@ -339,6 +400,38 @@ public enum Pop3Sasl {
             return login(username: username, password: password)
         }
         return nil
+    }
+}
+
+/// Internal state holder for POP3 GSSAPI SASL authentication.
+final class Pop3GssapiSaslState: @unchecked Sendable {
+    let context: GssapiContext
+    private var authComplete = false
+
+    init(servicePrincipalName: String, username: String?, password: String?) {
+        self.context = GssapiContext(
+            servicePrincipalName: servicePrincipalName,
+            username: username,
+            password: password
+        )
+    }
+
+    func processChallenge(_ challengeBase64: String) throws -> String {
+        let trimmed = challengeBase64.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let challengeData = Data(base64Encoded: trimmed) else {
+            throw GssapiError.invalidBase64
+        }
+
+        if !authComplete {
+            let response = try context.initSecContext(inputToken: challengeData)
+            if context.isComplete {
+                authComplete = true
+            }
+            return response.base64EncodedString()
+        } else {
+            let response = try context.negotiateSecurityLayer(challenge: challengeData)
+            return response.base64EncodedString()
+        }
     }
 }
 
