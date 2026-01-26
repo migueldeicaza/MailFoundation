@@ -14,10 +14,11 @@ public final class SmtpTransport: MailTransportBase<SmtpResponse>, MailTransport
         host: String,
         port: Int,
         backend: TransportBackend = .tcp,
+        proxy: ProxySettings? = nil,
         protocolLogger: ProtocolLoggerType = NullProtocolLogger(),
         maxReads: Int = 10
     ) throws -> SmtpTransport {
-        let transport = try TransportFactory.make(host: host, port: port, backend: backend)
+        let transport = try TransportFactory.make(host: host, port: port, backend: backend, proxy: proxy)
         return SmtpTransport(transport: transport, protocolLogger: protocolLogger, maxReads: maxReads)
     }
 

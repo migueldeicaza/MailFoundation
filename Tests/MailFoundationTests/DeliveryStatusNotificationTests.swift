@@ -42,3 +42,20 @@ func deliveryStatusNotificationParsesGroups() throws {
     #expect(recipient.finalLogId == "log-42")
     #expect(recipient.willRetryUntil != nil)
 }
+
+@Test("Delivery status notification resolves from multipart report")
+func deliveryStatusNotificationFromMultipartReport() throws {
+    let status = MessageDeliveryStatus()
+    let group = HeaderList()
+    group.add(Header(field: "Reporting-MTA", value: "dns; mail.example.com"))
+    status.statusGroups.add(group)
+
+    let report = try MultipartReport(reportType: "delivery-status")
+    try report.add(status)
+
+    let message = MimeMessage()
+    message.body = report
+
+    let notification = DeliveryStatusNotification(message: message)
+    #expect(notification?.messageFields?.reportingMta?.address == "mail.example.com")
+}

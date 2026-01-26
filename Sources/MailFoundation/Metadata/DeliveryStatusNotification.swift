@@ -30,6 +30,34 @@ public struct DeliveryStatusNotification: Sendable, Equatable {
             self.recipients = []
         }
     }
+
+    public init?(message: MimeMessage) {
+        guard let entity = message.body else { return nil }
+        self.init(entity: entity)
+    }
+
+    public init?(entity: MimeEntity) {
+        guard let status = DeliveryStatusNotification.findStatus(in: entity) else { return nil }
+        self.init(status: status)
+    }
+
+    private static func findStatus(in entity: MimeEntity) -> MessageDeliveryStatus? {
+        if let status = entity as? MessageDeliveryStatus {
+            return status
+        }
+        if let report = entity as? MultipartReport {
+            if report.reportType?.trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() == "delivery-status" {
+                for index in report.indices {
+                    let part = report[index]
+                    if let status = part as? MessageDeliveryStatus {
+                        return status
+                    }
+                }
+            }
+        }
+        return nil
+    }
 }
 
 public struct DeliveryStatusFields: Sendable, Equatable {
