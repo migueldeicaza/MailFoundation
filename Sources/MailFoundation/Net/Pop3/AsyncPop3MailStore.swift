@@ -95,6 +95,37 @@ public actor AsyncPop3MailStore: AsyncMailStore {
         return response
     }
 
+    public func authenticateCramMd5(user: String, password: String) async throws -> Pop3Response? {
+        let response = try await session.authenticateCramMd5(user: user, password: password)
+        await inbox.attachStore(self)
+        _ = try await inbox.open(.readOnly)
+        return response
+    }
+
+    public func authenticateXoauth2(user: String, accessToken: String) async throws -> Pop3Response? {
+        let response = try await session.authenticateXoauth2(user: user, accessToken: accessToken)
+        await inbox.attachStore(self)
+        _ = try await inbox.open(.readOnly)
+        return response
+    }
+
+    public func authenticateSasl(
+        user: String,
+        accessToken: String,
+        capabilities: Pop3Capabilities? = nil,
+        mechanisms: [String]? = nil
+    ) async throws -> Pop3Response? {
+        let response = try await session.authenticateSasl(
+            user: user,
+            accessToken: accessToken,
+            capabilities: capabilities,
+            mechanisms: mechanisms
+        )
+        await inbox.attachStore(self)
+        _ = try await inbox.open(.readOnly)
+        return response
+    }
+
     public func getFolder(_ path: String) async throws -> AsyncPop3Folder {
         guard path.caseInsensitiveCompare("INBOX") == .orderedSame else {
             throw Pop3FolderError.unsupportedFolder

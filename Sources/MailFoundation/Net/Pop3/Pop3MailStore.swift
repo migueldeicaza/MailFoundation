@@ -59,6 +59,37 @@ public final class Pop3MailStore: MailServiceBase<Pop3Response>, MailStore {
         return response
     }
 
+    public func authenticateCramMd5(user: String, password: String) throws -> Pop3Response {
+        let response = try session.authenticateCramMd5(user: user, password: password)
+        updateState(.authenticated)
+        _ = try inbox.open(.readOnly)
+        return response
+    }
+
+    public func authenticateXoauth2(user: String, accessToken: String) throws -> Pop3Response {
+        let response = try session.authenticateXoauth2(user: user, accessToken: accessToken)
+        updateState(.authenticated)
+        _ = try inbox.open(.readOnly)
+        return response
+    }
+
+    public func authenticateSasl(
+        user: String,
+        accessToken: String,
+        capabilities: Pop3Capabilities? = nil,
+        mechanisms: [String]? = nil
+    ) throws -> Pop3Response {
+        let response = try session.authenticateSasl(
+            user: user,
+            accessToken: accessToken,
+            capabilities: capabilities,
+            mechanisms: mechanisms
+        )
+        updateState(.authenticated)
+        _ = try inbox.open(.readOnly)
+        return response
+    }
+
     public override func disconnect() {
         inbox.close()
         session.disconnect()

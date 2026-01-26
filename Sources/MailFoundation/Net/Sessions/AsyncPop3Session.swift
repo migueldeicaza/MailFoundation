@@ -109,6 +109,18 @@ public actor AsyncPop3Session {
         )
     }
 
+    public func authenticateCramMd5(user: String, password: String) async throws -> Pop3Response? {
+        guard let authentication = Pop3Sasl.cramMd5(username: user, password: password) else {
+            throw SessionError.pop3Error(message: "CRAM-MD5 is not available.")
+        }
+        return try await authenticate(authentication)
+    }
+
+    public func authenticateXoauth2(user: String, accessToken: String) async throws -> Pop3Response? {
+        let authentication = Pop3Sasl.xoauth2(username: user, accessToken: accessToken)
+        return try await authenticate(authentication)
+    }
+
     public func authenticateSasl(
         user: String,
         password: String,
@@ -134,6 +146,29 @@ public actor AsyncPop3Session {
             throw SessionError.pop3Error(message: "No supported SASL mechanisms.")
         }
         return try await authenticate(authentication)
+    }
+
+    public func authenticateSasl(
+        user: String,
+        accessToken: String,
+        capabilities: Pop3Capabilities? = nil,
+        mechanisms: [String]? = nil
+    ) async throws -> Pop3Response? {
+        let availableMechanisms: [String]
+        if let mechanisms {
+            availableMechanisms = mechanisms
+        } else if let capabilities {
+            availableMechanisms = capabilities.saslMechanisms()
+        } else if let fetched = try await capability() {
+            availableMechanisms = fetched.saslMechanisms()
+        } else {
+            availableMechanisms = []
+        }
+
+        guard availableMechanisms.contains(where: { $0.caseInsensitiveCompare("XOAUTH2") == .orderedSame }) else {
+            throw SessionError.pop3Error(message: "XOAUTH2 is not supported.")
+        }
+        return try await authenticateXoauth2(user: user, accessToken: accessToken)
     }
 
     public func noop() async throws -> Pop3Response? {
