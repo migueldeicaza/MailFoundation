@@ -77,4 +77,58 @@ public enum SmtpSasl {
             initialResponse: base64(payload)
         )
     }
+
+    /// Creates an NTLM SASL authentication configuration.
+    ///
+    /// NTLM is a challenge-response authentication mechanism commonly used
+    /// with Microsoft Exchange servers. This implementation uses NTLMv2.
+    ///
+    /// - Parameters:
+    ///   - username: The username (can include domain as `DOMAIN\\user` or `user@domain`).
+    ///   - password: The user's password.
+    ///   - domain: The domain name (optional if included in username).
+    ///   - workstation: The workstation name (optional).
+    /// - Returns: A ``SmtpAuthentication`` configured for NTLM.
+    ///
+    /// ## Example
+    ///
+    /// ```swift
+    /// let auth = SmtpSasl.ntlm(
+    ///     username: "CORP\\jsmith",
+    ///     password: "secret"
+    /// )
+    /// ```
+    public static func ntlm(
+        username: String,
+        password: String,
+        domain: String? = nil,
+        workstation: String? = nil
+    ) -> SmtpAuthentication {
+        let (user, resolvedDomain) = NtlmUtils.parseUsername(username, domain: domain)
+        let negotiate = NtlmNegotiateMessage(domain: resolvedDomain, workstation: workstation)
+        let initialResponse = negotiate.encode().base64EncodedString()
+
+        let responder: @Sendable (String) throws -> String = { challengeBase64 in
+            let trimmed = challengeBase64.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let challengeData = Data(base64Encoded: trimmed) else {
+                throw NtlmError.invalidBase64
+            }
+            let challenge = try NtlmChallengeMessage(data: challengeData)
+            let authenticate = NtlmAuthenticateMessage(
+                negotiate: negotiate,
+                challenge: challenge,
+                userName: user,
+                password: password,
+                domain: resolvedDomain,
+                workstation: workstation
+            )
+            return authenticate.encode().base64EncodedString()
+        }
+
+        return SmtpAuthentication(
+            mechanism: "NTLM",
+            initialResponse: initialResponse,
+            responder: responder
+        )
+    }
 }

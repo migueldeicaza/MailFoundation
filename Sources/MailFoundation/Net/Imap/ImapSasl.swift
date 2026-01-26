@@ -1,18 +1,15 @@
 //
-// Pop3Sasl.swift
+// ImapSasl.swift
 //
-// SASL helpers for POP3 AUTH.
+// SASL helpers for IMAP AUTHENTICATE.
 //
 
 import Foundation
-#if canImport(CryptoKit)
-import CryptoKit
-#endif
 
-/// Represents a SASL authentication mechanism configuration.
+/// Represents a SASL authentication mechanism configuration for IMAP.
 ///
 /// This struct encapsulates everything needed to perform SASL authentication
-/// with a POP3 server, including the mechanism name, optional initial response,
+/// with an IMAP server, including the mechanism name, optional initial response,
 /// and a responder for challenge-response mechanisms.
 ///
 /// ## Usage
@@ -20,29 +17,24 @@ import CryptoKit
 /// For simple mechanisms like PLAIN:
 ///
 /// ```swift
-/// let auth = Pop3Sasl.plain(username: "user", password: "secret")
+/// let auth = ImapSasl.plain(username: "user", password: "secret")
 /// // auth.mechanism is "PLAIN"
 /// // auth.initialResponse contains the base64-encoded credentials
 /// ```
 ///
-/// For challenge-response mechanisms like CRAM-MD5:
+/// For challenge-response mechanisms like NTLM:
 ///
 /// ```swift
-/// let auth = Pop3Sasl.cramMd5(username: "user", password: "secret")!
+/// let auth = ImapSasl.ntlm(username: "DOMAIN\\user", password: "secret")
 /// // auth.responder handles server challenges
 /// ```
-///
-/// ## See Also
-///
-/// - ``Pop3Sasl`` for factory methods
-/// - ``Pop3MailStore/authenticateSasl(user:password:capabilities:mechanisms:)``
-public struct Pop3Authentication: Sendable {
-    /// The SASL mechanism name (e.g., "PLAIN", "LOGIN", "CRAM-MD5", "XOAUTH2").
+public struct ImapAuthentication: Sendable {
+    /// The SASL mechanism name (e.g., "PLAIN", "LOGIN", "NTLM", "XOAUTH2").
     public let mechanism: String
 
     /// The optional initial response for mechanisms that support it.
     ///
-    /// This is base64-encoded data sent with the AUTH command for mechanisms
+    /// This is base64-encoded data sent with the AUTHENTICATE command for mechanisms
     /// that don't require a server challenge first.
     public let initialResponse: String?
 
@@ -69,46 +61,25 @@ public struct Pop3Authentication: Sendable {
     }
 }
 
-/// Factory methods for creating SASL authentication configurations.
+/// Factory methods for creating SASL authentication configurations for IMAP.
 ///
-/// `Pop3Sasl` provides static methods for creating ``Pop3Authentication``
-/// configurations for various SASL mechanisms supported by POP3 servers.
+/// `ImapSasl` provides static methods for creating ``ImapAuthentication``
+/// configurations for various SASL mechanisms supported by IMAP servers.
 ///
 /// ## Supported Mechanisms
 ///
 /// - `PLAIN` - Simple username/password in a single base64-encoded string
 /// - `LOGIN` - Challenge-response with separate username and password prompts
-/// - `CRAM-MD5` - Challenge-response using HMAC-MD5 (requires CryptoKit)
+/// - `NTLM` - Microsoft NTLM challenge-response authentication (NTLMv2)
 /// - `XOAUTH2` - OAuth 2.0 bearer token authentication
 ///
 /// ## Security Considerations
 ///
 /// - `PLAIN` sends credentials in base64 (not encrypted) - use only over TLS
 /// - `LOGIN` is similar to PLAIN but uses challenge-response
-/// - `CRAM-MD5` never sends the password but uses weak MD5
+/// - `NTLM` never sends the password but uses legacy cryptography
 /// - `XOAUTH2` is recommended for services that support OAuth
-///
-/// ## Usage
-///
-/// ```swift
-/// // Automatic mechanism selection
-/// if let auth = Pop3Sasl.chooseAuthentication(
-///     username: "user@example.com",
-///     password: "secret",
-///     mechanisms: capabilities.saslMechanisms()
-/// ) {
-///     // Use auth for authentication
-/// }
-///
-/// // Or choose a specific mechanism
-/// let auth = Pop3Sasl.plain(username: "user", password: "secret")
-/// ```
-///
-/// ## See Also
-///
-/// - ``Pop3Authentication`` for the result type
-/// - ``Pop3Capabilities/saslMechanisms()`` for discovering supported mechanisms
-public enum Pop3Sasl {
+public enum ImapSasl {
     /// Encodes a string as base64.
     ///
     /// - Parameter text: The string to encode.
@@ -126,15 +97,15 @@ public enum Pop3Sasl {
     ///   - username: The username (authentication identity).
     ///   - password: The user's password.
     ///   - authorizationId: Optional authorization identity (usually empty).
-    /// - Returns: A ``Pop3Authentication`` configured for PLAIN.
+    /// - Returns: An ``ImapAuthentication`` configured for PLAIN.
     public static func plain(
         username: String,
         password: String,
         authorizationId: String? = nil
-    ) -> Pop3Authentication {
+    ) -> ImapAuthentication {
         let authz = authorizationId ?? ""
         let payload = "\(authz)\u{0}\(username)\u{0}\(password)"
-        return Pop3Authentication(
+        return ImapAuthentication(
             mechanism: "PLAIN",
             initialResponse: base64(payload)
         )
@@ -149,17 +120,18 @@ public enum Pop3Sasl {
     ///   - username: The username.
     ///   - password: The user's password.
     ///   - useInitialResponse: Whether to send username as initial response.
-    /// - Returns: A ``Pop3Authentication`` configured for LOGIN.
+    /// - Returns: An ``ImapAuthentication`` configured for LOGIN.
     public static func login(
         username: String,
         password: String,
         useInitialResponse: Bool = false
-    ) -> Pop3Authentication {
+    ) -> ImapAuthentication {
         let initial = useInitialResponse ? base64(username) : nil
         let responder: @Sendable (String) throws -> String = { challenge in
             let trimmed = challenge.trimmingCharacters(in: .whitespacesAndNewlines)
             if let data = Data(base64Encoded: trimmed),
-               let text = String(data: data, encoding: .utf8) {
+               let text = String(data: data, encoding: .utf8)
+            {
                 let lower = text.lowercased()
                 if lower.contains("username") {
                     return base64(username)
@@ -173,40 +145,9 @@ public enum Pop3Sasl {
             }
             return base64(password)
         }
-        return Pop3Authentication(
+        return ImapAuthentication(
             mechanism: "LOGIN",
             initialResponse: initial,
-            responder: responder
-        )
-    }
-
-    /// Creates a CRAM-MD5 SASL authentication configuration.
-    ///
-    /// CRAM-MD5 uses challenge-response authentication where the password
-    /// is never sent over the network. The server sends a challenge, and
-    /// the client responds with `HMAC-MD5(password, challenge)`.
-    ///
-    /// - Parameters:
-    ///   - username: The username.
-    ///   - password: The user's password.
-    /// - Returns: A ``Pop3Authentication`` configured for CRAM-MD5, or nil if CryptoKit is unavailable.
-    public static func cramMd5(
-        username: String,
-        password: String
-    ) -> Pop3Authentication? {
-        guard hmacMd5Available else { return nil }
-        let responder: @Sendable (String) throws -> String = { challenge in
-            let trimmed = challenge.trimmingCharacters(in: .whitespacesAndNewlines)
-            let challengeData = Data(base64Encoded: trimmed) ?? Data(trimmed.utf8)
-            guard let digest = hmacMd5Hex(message: challengeData, key: Data(password.utf8)) else {
-                throw Pop3SaslError.cryptoUnavailable
-            }
-            let response = "\(username) \(digest)"
-            return base64(response)
-        }
-        return Pop3Authentication(
-            mechanism: "CRAM-MD5",
-            initialResponse: nil,
             responder: responder
         )
     }
@@ -220,20 +161,10 @@ public enum Pop3Sasl {
     /// - Parameters:
     ///   - username: The username or email address.
     ///   - accessToken: The OAuth 2.0 access token.
-    /// - Returns: A ``Pop3Authentication`` configured for XOAUTH2.
-    ///
-    /// ## Example
-    ///
-    /// ```swift
-    /// // After obtaining an OAuth access token
-    /// let auth = Pop3Sasl.xoauth2(
-    ///     username: "user@gmail.com",
-    ///     accessToken: oauthToken
-    /// )
-    /// ```
-    public static func xoauth2(username: String, accessToken: String) -> Pop3Authentication {
+    /// - Returns: An ``ImapAuthentication`` configured for XOAUTH2.
+    public static func xoauth2(username: String, accessToken: String) -> ImapAuthentication {
         let payload = "user=\(username)\u{01}auth=Bearer \(accessToken)\u{01}\u{01}"
-        return Pop3Authentication(
+        return ImapAuthentication(
             mechanism: "XOAUTH2",
             initialResponse: base64(payload)
         )
@@ -249,12 +180,12 @@ public enum Pop3Sasl {
     ///   - password: The user's password.
     ///   - domain: The domain name (optional if included in username).
     ///   - workstation: The workstation name (optional).
-    /// - Returns: A ``Pop3Authentication`` configured for NTLM.
+    /// - Returns: An ``ImapAuthentication`` configured for NTLM.
     ///
     /// ## Example
     ///
     /// ```swift
-    /// let auth = Pop3Sasl.ntlm(
+    /// let auth = ImapSasl.ntlm(
     ///     username: "CORP\\jsmith",
     ///     password: "secret"
     /// )
@@ -264,7 +195,7 @@ public enum Pop3Sasl {
         password: String,
         domain: String? = nil,
         workstation: String? = nil
-    ) -> Pop3Authentication {
+    ) -> ImapAuthentication {
         let (user, resolvedDomain) = NtlmUtils.parseUsername(username, domain: domain)
         let negotiate = NtlmNegotiateMessage(domain: resolvedDomain, workstation: workstation)
         let initialResponse = negotiate.encode().base64EncodedString()
@@ -286,7 +217,7 @@ public enum Pop3Sasl {
             return authenticate.encode().base64EncodedString()
         }
 
-        return Pop3Authentication(
+        return ImapAuthentication(
             mechanism: "NTLM",
             initialResponse: initialResponse,
             responder: responder
@@ -297,38 +228,21 @@ public enum Pop3Sasl {
     ///
     /// This method selects the most secure mechanism that is both supported
     /// by the server and available on this platform. The preference order is:
-    /// 1. CRAM-MD5 (if CryptoKit is available)
-    /// 2. NTLM
-    /// 3. PLAIN
-    /// 4. LOGIN
+    /// 1. NTLM (for Exchange servers)
+    /// 2. PLAIN
+    /// 3. LOGIN
     ///
     /// - Parameters:
     ///   - username: The username.
     ///   - password: The user's password.
     ///   - mechanisms: The mechanisms supported by the server.
-    /// - Returns: A ``Pop3Authentication`` for the best available mechanism, or nil if none match.
-    ///
-    /// ## Example
-    ///
-    /// ```swift
-    /// let caps = try session.capa()
-    /// if let auth = Pop3Sasl.chooseAuthentication(
-    ///     username: "user",
-    ///     password: "secret",
-    ///     mechanisms: caps?.saslMechanisms() ?? []
-    /// ) {
-    ///     try session.auth(auth)
-    /// }
-    /// ```
+    /// - Returns: An ``ImapAuthentication`` for the best available mechanism, or nil if none match.
     public static func chooseAuthentication(
         username: String,
         password: String,
         mechanisms: [String]
-    ) -> Pop3Authentication? {
+    ) -> ImapAuthentication? {
         let normalized = mechanisms.map { $0.uppercased() }
-        if normalized.contains("CRAM-MD5"), let cram = cramMd5(username: username, password: password) {
-            return cram
-        }
         if normalized.contains("NTLM") {
             return ntlm(username: username, password: password)
         }
@@ -340,27 +254,4 @@ public enum Pop3Sasl {
         }
         return nil
     }
-}
-
-/// Errors that can occur during SASL authentication.
-public enum Pop3SaslError: Error, Sendable, Equatable {
-    /// The required cryptographic functions are not available on this platform.
-    case cryptoUnavailable
-}
-
-private let hmacMd5Available: Bool = {
-    #if canImport(CryptoKit)
-    return true
-    #else
-    return false
-    #endif
-}()
-
-private func hmacMd5Hex(message: Data, key: Data) -> String? {
-    #if canImport(CryptoKit)
-    let mac = HMAC<Insecure.MD5>.authenticationCode(for: message, using: SymmetricKey(data: key))
-    return mac.map { String(format: "%02x", $0) }.joined()
-    #else
-    return nil
-    #endif
 }
