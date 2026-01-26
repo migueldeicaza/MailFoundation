@@ -55,6 +55,29 @@ func asyncPop3SessionApopAuth() async throws {
 }
 
 @available(macOS 10.15, iOS 13.0, *)
+@Test("Async POP3 session APOP failure")
+func asyncPop3SessionApopFailure() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncPop3Session(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("+OK POP3 server ready <1896.697170952@dbc.mtview.ca.us>\r\n".utf8))
+    _ = try await connectTask.value
+
+    let apopTask = Task { try await session.apop(user: "alice", digest: "bad") }
+    await transport.yieldIncoming(Array("-ERR Authentication failed\r\n".utf8))
+
+    do {
+        _ = try await apopTask.value
+        #expect(Bool(false))
+    } catch let error as Pop3CommandError {
+        #expect(error.statusText == "Authentication failed")
+    } catch {
+        #expect(Bool(false))
+    }
+}
+
+@available(macOS 10.15, iOS 13.0, *)
 @Test("Async POP3 session AUTH PLAIN")
 func asyncPop3SessionAuthPlain() async throws {
     let transport = AsyncStreamTransport()

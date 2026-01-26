@@ -42,6 +42,13 @@ public final class Pop3MailStore: MailServiceBase<Pop3Response>, MailStore {
         return responses
     }
 
+    public func authenticateApop(user: String, digest: String) throws -> Pop3Response {
+        let response = try session.apop(user: user, digest: digest)
+        updateState(.authenticated)
+        _ = try inbox.open(.readOnly)
+        return response
+    }
+
     public func authenticateSasl(
         user: String,
         password: String,

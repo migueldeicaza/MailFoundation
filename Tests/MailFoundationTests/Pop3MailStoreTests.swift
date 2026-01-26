@@ -389,6 +389,31 @@ func asyncPop3StoreCommandErrorResponse() async throws {
 }
 
 @available(macOS 10.15, iOS 13.0, *)
+@Test("Async POP3 store APOP failure")
+func asyncPop3StoreApopFailure() async throws {
+    let transport = AsyncStreamTransport()
+    let store = AsyncPop3MailStore(transport: transport)
+
+    let connectTask = Task { try await store.connect() }
+    await transport.yieldIncoming(Array("+OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let apopTask = Task {
+        try await store.authenticateApop(user: "user", digest: "bad")
+    }
+    await transport.yieldIncoming(Array("-ERR Authentication failed\r\n".utf8))
+
+    do {
+        _ = try await apopTask.value
+        #expect(Bool(false))
+    } catch let error as Pop3CommandError {
+        #expect(error.statusText == "Authentication failed")
+    } catch {
+        #expect(Bool(false))
+    }
+}
+
+@available(macOS 10.15, iOS 13.0, *)
 @Test("Async POP3 store SASL XOAUTH2 unsupported via CAPA")
 func asyncPop3StoreSaslXoauth2Unsupported() async throws {
     let transport = AsyncStreamTransport()
