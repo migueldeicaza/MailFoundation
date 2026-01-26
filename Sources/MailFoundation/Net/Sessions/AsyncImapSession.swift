@@ -157,6 +157,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     if emptyReads > 10 {
                         throw SessionError.timeout
@@ -194,6 +197,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -238,6 +244,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -264,6 +273,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -291,6 +303,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -317,6 +332,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -343,6 +361,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -369,6 +390,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -395,6 +419,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -431,6 +458,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -471,6 +501,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -506,6 +539,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -542,6 +578,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -588,6 +627,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -622,6 +664,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -668,6 +713,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -702,6 +750,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -1316,6 +1367,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -1356,6 +1410,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let batch = await self.client.nextMessages()
                 if batch.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -1403,6 +1460,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let batch = await self.client.nextMessages()
                 if batch.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -1464,6 +1524,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -1504,6 +1567,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let batch = await self.client.nextMessages()
                 if batch.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }
@@ -1559,6 +1625,9 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
                     emptyReads += 1
                     continue
                 }

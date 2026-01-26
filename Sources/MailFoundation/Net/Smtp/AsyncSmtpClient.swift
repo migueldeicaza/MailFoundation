@@ -122,13 +122,14 @@ public actor AsyncSmtpClient {
                 await queue.enqueue(chunk)
             }
             await queue.finish()
+            await self.setDisconnected()
         }
     }
 
-    /// Stops the client and disconnects from the server.
-    ///
-    /// This cancels the background reader, stops the transport, and resets the client state.
-    /// You should send a QUIT command before calling this for a graceful disconnection.
+    private func setDisconnected() {
+        state = .disconnected
+    }
+
     public func stop() async {
         readerTask?.cancel()
         readerTask = nil

@@ -76,28 +76,28 @@ public actor AsyncSmtpSession {
     public func helo(domain: String) async throws -> SmtpResponse? {
         try await withSessionTimeout {
             _ = try await self.client.send(.helo(domain))
-            return try self.requireSuccess(await self.client.waitForResponse())
+            return try self.requireSuccess(try await self.waitForResponseOrThrow())
         }
     }
 
     public func noop() async throws -> SmtpResponse? {
         try await withSessionTimeout {
             _ = try await self.client.send(.noop)
-            return try self.requireSuccess(await self.client.waitForResponse())
+            return try self.requireSuccess(try await self.waitForResponseOrThrow())
         }
     }
 
     public func rset() async throws -> SmtpResponse? {
         try await withSessionTimeout {
             _ = try await self.client.send(.rset)
-            return try self.requireSuccess(await self.client.waitForResponse())
+            return try self.requireSuccess(try await self.waitForResponseOrThrow())
         }
     }
 
     public func vrfy(_ argument: String) async throws -> SmtpResponse? {
         try await withSessionTimeout {
             _ = try await self.client.send(.vrfy(argument))
-            return try self.requireSuccess(await self.client.waitForResponse())
+            return try self.requireSuccess(try await self.waitForResponseOrThrow())
         }
     }
 
@@ -111,7 +111,7 @@ public actor AsyncSmtpSession {
     public func expn(_ argument: String) async throws -> SmtpResponse? {
         try await withSessionTimeout {
             _ = try await self.client.send(.expn(argument))
-            return try self.requireSuccess(await self.client.waitForResponse())
+            return try self.requireSuccess(try await self.waitForResponseOrThrow())
         }
     }
 
@@ -125,8 +125,16 @@ public actor AsyncSmtpSession {
     public func help(_ argument: String? = nil) async throws -> SmtpResponse? {
         try await withSessionTimeout {
             _ = try await self.client.send(.help(argument))
-            return try self.requireSuccess(await self.client.waitForResponse())
+            return try self.requireSuccess(try await self.waitForResponseOrThrow())
         }
+    }
+
+    private func waitForResponseOrThrow() async throws -> SmtpResponse? {
+        let response = await client.waitForResponse()
+        if response == nil, await client.state == .disconnected {
+            throw SessionError.connectionClosed(message: "Connection closed by server.")
+        }
+        return response
     }
 
     public func helpResult(_ argument: String? = nil) async throws -> SmtpHelpResult {
@@ -219,7 +227,12 @@ public actor AsyncSmtpSession {
                 let challenge = response.lines.first ?? ""
                 let reply = try await responder(challenge)
                 _ = try await self.client.sendLine(reply)
-                guard let next = await self.client.waitForResponse() else {
+                
+                let next = await self.client.waitForResponse()
+                if next == nil, await self.client.state == .disconnected {
+                    throw SessionError.connectionClosed(message: "Connection closed by server.")
+                }
+                guard let next else {
                     throw SessionError.timeout
                 }
                 response = next
@@ -241,7 +254,7 @@ public actor AsyncSmtpSession {
     public func sendMail(from: String, to recipients: [String], data: [UInt8]) async throws -> SmtpResponse {
         try await withSessionTimeout {
             _ = try await self.client.send(.mailFrom(from))
-            guard let mailResponse = await self.client.waitForResponse() else {
+            guard let mailResponse = try await self.waitForResponseOrThrow() else {
                 throw SessionError.timeout
             }
             guard mailResponse.isSuccess else {
@@ -251,7 +264,7 @@ public actor AsyncSmtpSession {
             for recipient in recipients {
                 try Task.checkCancellation()
                 _ = try await self.client.send(.rcptTo(recipient))
-                guard let rcptResponse = await self.client.waitForResponse() else {
+                guard let rcptResponse = try await self.waitForResponseOrThrow() else {
                     throw SessionError.timeout
                 }
                 guard rcptResponse.isSuccess else {
@@ -283,7 +296,7 @@ public actor AsyncSmtpSession {
             } else {
                 _ = try await self.client.send(.mailFrom(from))
             }
-            guard let mailResponse = await self.client.waitForResponse() else {
+            guard let mailResponse = try await self.waitForResponseOrThrow() else {
                 throw SessionError.timeout
             }
             guard mailResponse.isSuccess else {
@@ -297,7 +310,7 @@ public actor AsyncSmtpSession {
                 } else {
                     _ = try await self.client.send(.rcptTo(recipient))
                 }
-                guard let rcptResponse = await self.client.waitForResponse() else {
+                guard let rcptResponse = try await self.waitForResponseOrThrow() else {
                     throw SessionError.timeout
                 }
                 guard rcptResponse.isSuccess else {
@@ -338,7 +351,7 @@ public actor AsyncSmtpSession {
                 }
             }
 
-            guard let mailResponse = await self.client.waitForResponse() else {
+            guard let mailResponse = try await self.waitForResponseOrThrow() else {
                 throw SessionError.timeout
             }
             guard mailResponse.isSuccess else {
@@ -346,7 +359,7 @@ public actor AsyncSmtpSession {
             }
 
             for recipient in recipients {
-                guard let rcptResponse = await self.client.waitForResponse() else {
+                guard let rcptResponse = try await self.waitForResponseOrThrow() else {
                     throw SessionError.timeout
                 }
                 guard rcptResponse.isSuccess else {
@@ -369,7 +382,7 @@ public actor AsyncSmtpSession {
         try await withSessionTimeout {
             _ = try await self.client.send(.bdat(data.count, last: last))
             _ = try await self.client.sendRaw(data)
-            guard let response = await self.client.waitForResponse() else {
+            guard let response = try await self.waitForResponseOrThrow() else {
                 throw SessionError.timeout
             }
             guard response.isSuccess else {
@@ -394,7 +407,7 @@ public actor AsyncSmtpSession {
             } else {
                 _ = try await self.client.send(.mailFrom(from))
             }
-            guard let mailResponse = await self.client.waitForResponse() else {
+            guard let mailResponse = try await self.waitForResponseOrThrow() else {
                 throw SessionError.timeout
             }
             guard mailResponse.isSuccess else {
@@ -408,7 +421,7 @@ public actor AsyncSmtpSession {
                 } else {
                     _ = try await self.client.send(.rcptTo(recipient))
                 }
-                guard let rcptResponse = await self.client.waitForResponse() else {
+                guard let rcptResponse = try await self.waitForResponseOrThrow() else {
                     throw SessionError.timeout
                 }
                 guard rcptResponse.isSuccess else {
@@ -438,7 +451,7 @@ public actor AsyncSmtpSession {
         }
         return try await withSessionTimeout {
             _ = try await self.client.send(.starttls)
-            guard let response = await self.client.waitForResponse() else {
+            guard let response = try await self.waitForResponseOrThrow() else {
                 throw SessionError.timeout
             }
             guard response.isSuccess else {
@@ -452,7 +465,7 @@ public actor AsyncSmtpSession {
     public func etrn(_ argument: String) async throws -> SmtpResponse? {
         try await withSessionTimeout {
             _ = try await self.client.send(.etrn(argument))
-            return await self.client.waitForResponse()
+            return try await self.waitForResponseOrThrow()
         }
     }
 

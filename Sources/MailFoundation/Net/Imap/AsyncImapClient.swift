@@ -51,7 +51,12 @@ public actor AsyncImapClient {
                 await queue.enqueue(chunk)
             }
             await queue.finish()
+            await self.setDisconnected()
         }
+    }
+
+    private func setDisconnected() {
+        state = .disconnected
     }
 
     public func stop() async {
