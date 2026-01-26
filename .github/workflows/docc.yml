@@ -25,7 +25,8 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Generate DocC
         run: |
-          swift package generate-documentation \
+          mkdir -p docs
+          swift package --allow-writing-to-directory "$PWD/docs" generate-documentation \
             --target MailFoundation \
             --output-path ./docs \
             --transform-for-static-hosting \
