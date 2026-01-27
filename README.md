@@ -1,5 +1,9 @@
 # MailFoundation
 
+<p align="center">
+  <img src="mailfoundation.webp" alt="MailFoundation Banner" style="max-width: 100%; height: auto;">
+</p>
+
 MailFoundation is a Swift package that provides IMAP, POP3, and SMTP client stacks plus
 mail metadata utilities. It is designed to pair with [MimeFoundation](https://github.com/migueldeicaza/MimeFoundation) 
 for MIME parsing and message construction while providing a focused, protocol-level 
