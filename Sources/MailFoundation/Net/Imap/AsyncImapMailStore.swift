@@ -234,13 +234,15 @@ public actor AsyncImapMailStore: AsyncMailStore {
         user: String,
         password: String,
         mechanisms: [String]? = nil,
-        host: String? = nil
+        host: String? = nil,
+        channelBinding: ScramChannelBinding? = nil
     ) async throws -> ImapResponse? {
         try await session.authenticateSasl(
             user: user,
             password: password,
             mechanisms: mechanisms,
-            host: host
+            host: host,
+            channelBinding: channelBinding
         )
     }
 

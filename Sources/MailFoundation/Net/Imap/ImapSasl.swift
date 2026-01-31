@@ -397,6 +397,30 @@ public enum ImapSasl {
         )
     }
 
+    /// Creates a SCRAM-SHA-1-PLUS SASL authentication configuration.
+    ///
+    /// - Parameters:
+    ///   - username: The username.
+    ///   - password: The user's password.
+    ///   - authorizationId: Optional authorization identity.
+    ///   - channelBinding: Channel binding data for SCRAM-PLUS.
+    /// - Returns: An ``ImapAuthentication`` configured for SCRAM-SHA-1-PLUS.
+    public static func scramSha1Plus(
+        username: String,
+        password: String,
+        authorizationId: String? = nil,
+        channelBinding: ScramChannelBinding
+    ) -> ImapAuthentication {
+        scram(
+            username: username,
+            password: password,
+            algorithm: .sha1,
+            authorizationId: authorizationId,
+            channelBinding: channelBinding,
+            usePlus: true
+        )
+    }
+
     /// Creates a SCRAM-SHA-256 SASL authentication configuration.
     ///
     /// SCRAM-SHA-256 (RFC 7677) is a salted challenge-response mechanism that
@@ -417,6 +441,23 @@ public enum ImapSasl {
             password: password,
             algorithm: .sha256,
             authorizationId: authorizationId
+        )
+    }
+
+    /// Creates a SCRAM-SHA-256-PLUS SASL authentication configuration.
+    public static func scramSha256Plus(
+        username: String,
+        password: String,
+        authorizationId: String? = nil,
+        channelBinding: ScramChannelBinding
+    ) -> ImapAuthentication {
+        scram(
+            username: username,
+            password: password,
+            algorithm: .sha256,
+            authorizationId: authorizationId,
+            channelBinding: channelBinding,
+            usePlus: true
         )
     }
 
@@ -443,6 +484,23 @@ public enum ImapSasl {
         )
     }
 
+    /// Creates a SCRAM-SHA-512-PLUS SASL authentication configuration.
+    public static func scramSha512Plus(
+        username: String,
+        password: String,
+        authorizationId: String? = nil,
+        channelBinding: ScramChannelBinding
+    ) -> ImapAuthentication {
+        scram(
+            username: username,
+            password: password,
+            algorithm: .sha512,
+            authorizationId: authorizationId,
+            channelBinding: channelBinding,
+            usePlus: true
+        )
+    }
+
     /// Creates a SCRAM SASL authentication configuration with the specified algorithm.
     ///
     /// - Parameters:
@@ -455,13 +513,16 @@ public enum ImapSasl {
         username: String,
         password: String,
         algorithm: ScramHashAlgorithm,
-        authorizationId: String? = nil
+        authorizationId: String? = nil,
+        channelBinding: ScramChannelBinding? = nil,
+        usePlus: Bool = false
     ) -> ImapAuthentication {
         let state = ScramSaslState(
             username: username,
             password: password,
             algorithm: algorithm,
-            authorizationId: authorizationId
+            authorizationId: authorizationId,
+            channelBinding: channelBinding
         )
 
         // Generate initial message
@@ -477,8 +538,9 @@ public enum ImapSasl {
             try state.processChallenge(challengeBase64)
         }
 
+        let mechanism = usePlus ? "\(algorithm.mechanismName)-PLUS" : algorithm.mechanismName
         return ImapAuthentication(
-            mechanism: algorithm.mechanismName,
+            mechanism: mechanism,
             initialResponse: initialResponse,
             responder: responder
         )
@@ -561,11 +623,23 @@ public enum ImapSasl {
         username: String,
         password: String,
         mechanisms: [String],
-        host: String? = nil
+        host: String? = nil,
+        channelBinding: ScramChannelBinding? = nil
     ) -> ImapAuthentication? {
         let normalized = mechanisms.map { $0.uppercased() }
 
         // SCRAM variants (strongest to weakest)
+        if let channelBinding {
+            if normalized.contains("SCRAM-SHA-512-PLUS") {
+                return scramSha512Plus(username: username, password: password, authorizationId: nil, channelBinding: channelBinding)
+            }
+            if normalized.contains("SCRAM-SHA-256-PLUS") {
+                return scramSha256Plus(username: username, password: password, authorizationId: nil, channelBinding: channelBinding)
+            }
+            if normalized.contains("SCRAM-SHA-1-PLUS") {
+                return scramSha1Plus(username: username, password: password, authorizationId: nil, channelBinding: channelBinding)
+            }
+        }
         if normalized.contains("SCRAM-SHA-512") {
             return scramSha512(username: username, password: password)
         }
@@ -639,13 +713,15 @@ final class ScramSaslState: @unchecked Sendable {
         username: String,
         password: String,
         algorithm: ScramHashAlgorithm,
-        authorizationId: String?
+        authorizationId: String?,
+        channelBinding: ScramChannelBinding? = nil
     ) {
         self.context = ScramContext(
             username: username,
             password: password,
             algorithm: algorithm,
-            authorizationId: authorizationId
+            authorizationId: authorizationId,
+            channelBinding: channelBinding
         )
     }
 

@@ -55,7 +55,7 @@ func imapNamespaceCommandSerialization() {
 func imapSessionNamespaceCommand() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("* NAMESPACE ((\"\" \"/\")) NIL NIL\r\n".utf8),
         Array("A0002 OK NAMESPACE\r\n".utf8)
     ])
@@ -81,7 +81,7 @@ func asyncImapSessionNamespaceCommand() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await loginTask.value
 
     let namespaceTask = Task { try await session.namespace() }

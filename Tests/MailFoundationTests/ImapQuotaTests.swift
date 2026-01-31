@@ -52,7 +52,7 @@ func imapQuotaCommandSerialization() {
 func imapSessionQuotaRoot() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("* QUOTAROOT \"INBOX\" \"root1\"\r\n".utf8),
         Array("* QUOTA \"root1\" (STORAGE 10 512)\r\n".utf8),
         Array("A0002 OK GETQUOTAROOT\r\n".utf8)
@@ -77,7 +77,7 @@ func asyncImapSessionQuotaRoot() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await loginTask.value
 
     let quotaTask = Task { try await session.getQuotaRoot("INBOX") }

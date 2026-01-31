@@ -50,7 +50,7 @@ struct AsyncConnectionDropTests {
 
                 let loginTask = Task { try await session.login(user: "user", password: "pass") }
 
-                await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+                await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
 
                 _ = try await loginTask.value
 

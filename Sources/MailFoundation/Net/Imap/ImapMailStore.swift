@@ -234,13 +234,15 @@ public final class ImapMailStore: MailServiceBase<ImapResponse>, MailStore {
         user: String,
         password: String,
         mechanisms: [String]? = nil,
-        host: String? = nil
+        host: String? = nil,
+        channelBinding: ScramChannelBinding? = nil
     ) throws -> ImapResponse {
         let response = try session.authenticateSasl(
             user: user,
             password: password,
             mechanisms: mechanisms,
-            host: host
+            host: host,
+            channelBinding: channelBinding
         )
         updateState(.authenticated)
         updateAuthenticationMechanisms(session.capabilities?.saslMechanisms() ?? [])

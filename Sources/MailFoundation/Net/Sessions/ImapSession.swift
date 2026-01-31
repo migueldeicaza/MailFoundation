@@ -174,7 +174,8 @@ public final class ImapSession {
         user: String,
         password: String,
         mechanisms: [String]? = nil,
-        host: String? = nil
+        host: String? = nil,
+        channelBinding: ScramChannelBinding? = nil
     ) throws -> ImapResponse {
         let availableMechanisms: [String]
         if let mechanisms {
@@ -190,7 +191,8 @@ public final class ImapSession {
             username: user,
             password: password,
             mechanisms: availableMechanisms,
-            host: host
+            host: host,
+            channelBinding: channelBinding
         ) else {
             throw SessionError.imapError(status: .no, text: "No supported SASL mechanisms.")
         }

@@ -327,6 +327,23 @@ public enum Pop3Sasl {
         )
     }
 
+    /// Creates a SCRAM-SHA-1-PLUS SASL authentication configuration.
+    public static func scramSha1Plus(
+        username: String,
+        password: String,
+        authorizationId: String? = nil,
+        channelBinding: ScramChannelBinding
+    ) -> Pop3Authentication {
+        scram(
+            username: username,
+            password: password,
+            algorithm: .sha1,
+            authorizationId: authorizationId,
+            channelBinding: channelBinding,
+            usePlus: true
+        )
+    }
+
     /// Creates a SCRAM-SHA-256 SASL authentication configuration.
     ///
     /// SCRAM-SHA-256 (RFC 7677) is a salted challenge-response mechanism that
@@ -347,6 +364,23 @@ public enum Pop3Sasl {
             password: password,
             algorithm: .sha256,
             authorizationId: authorizationId
+        )
+    }
+
+    /// Creates a SCRAM-SHA-256-PLUS SASL authentication configuration.
+    public static func scramSha256Plus(
+        username: String,
+        password: String,
+        authorizationId: String? = nil,
+        channelBinding: ScramChannelBinding
+    ) -> Pop3Authentication {
+        scram(
+            username: username,
+            password: password,
+            algorithm: .sha256,
+            authorizationId: authorizationId,
+            channelBinding: channelBinding,
+            usePlus: true
         )
     }
 
@@ -373,6 +407,23 @@ public enum Pop3Sasl {
         )
     }
 
+    /// Creates a SCRAM-SHA-512-PLUS SASL authentication configuration.
+    public static func scramSha512Plus(
+        username: String,
+        password: String,
+        authorizationId: String? = nil,
+        channelBinding: ScramChannelBinding
+    ) -> Pop3Authentication {
+        scram(
+            username: username,
+            password: password,
+            algorithm: .sha512,
+            authorizationId: authorizationId,
+            channelBinding: channelBinding,
+            usePlus: true
+        )
+    }
+
     /// Creates a SCRAM SASL authentication configuration with the specified algorithm.
     ///
     /// - Parameters:
@@ -385,13 +436,16 @@ public enum Pop3Sasl {
         username: String,
         password: String,
         algorithm: ScramHashAlgorithm,
-        authorizationId: String? = nil
+        authorizationId: String? = nil,
+        channelBinding: ScramChannelBinding? = nil,
+        usePlus: Bool = false
     ) -> Pop3Authentication {
         let state = Pop3ScramSaslState(
             username: username,
             password: password,
             algorithm: algorithm,
-            authorizationId: authorizationId
+            authorizationId: authorizationId,
+            channelBinding: channelBinding
         )
 
         // Generate initial message
@@ -407,8 +461,9 @@ public enum Pop3Sasl {
             try state.processChallenge(challengeBase64)
         }
 
+        let mechanism = usePlus ? "\(algorithm.mechanismName)-PLUS" : algorithm.mechanismName
         return Pop3Authentication(
-            mechanism: algorithm.mechanismName,
+            mechanism: mechanism,
             initialResponse: initialResponse,
             responder: responder
         )
@@ -557,11 +612,23 @@ public enum Pop3Sasl {
         username: String,
         password: String,
         mechanisms: [String],
-        host: String? = nil
+        host: String? = nil,
+        channelBinding: ScramChannelBinding? = nil
     ) -> Pop3Authentication? {
         let normalized = mechanisms.map { $0.uppercased() }
 
         // SCRAM variants (strongest to weakest)
+        if let channelBinding {
+            if normalized.contains("SCRAM-SHA-512-PLUS") {
+                return scramSha512Plus(username: username, password: password, authorizationId: nil, channelBinding: channelBinding)
+            }
+            if normalized.contains("SCRAM-SHA-256-PLUS") {
+                return scramSha256Plus(username: username, password: password, authorizationId: nil, channelBinding: channelBinding)
+            }
+            if normalized.contains("SCRAM-SHA-1-PLUS") {
+                return scramSha1Plus(username: username, password: password, authorizationId: nil, channelBinding: channelBinding)
+            }
+        }
         if normalized.contains("SCRAM-SHA-512") {
             return scramSha512(username: username, password: password)
         }
@@ -607,13 +674,15 @@ final class Pop3ScramSaslState: @unchecked Sendable {
         username: String,
         password: String,
         algorithm: ScramHashAlgorithm,
-        authorizationId: String?
+        authorizationId: String?,
+        channelBinding: ScramChannelBinding? = nil
     ) {
         self.context = ScramContext(
             username: username,
             password: password,
             algorithm: algorithm,
-            authorizationId: authorizationId
+            authorizationId: authorizationId,
+            channelBinding: channelBinding
         )
     }
 

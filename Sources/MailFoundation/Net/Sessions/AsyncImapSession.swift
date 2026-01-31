@@ -153,7 +153,8 @@ public actor AsyncImapSession {
         user: String,
         password: String,
         mechanisms: [String]? = nil,
-        host: String? = nil
+        host: String? = nil,
+        channelBinding: ScramChannelBinding? = nil
     ) async throws -> ImapResponse? {
         let availableMechanisms: [String]
         if let mechanisms {
@@ -169,7 +170,8 @@ public actor AsyncImapSession {
             username: user,
             password: password,
             mechanisms: availableMechanisms,
-            host: host
+            host: host,
+            channelBinding: channelBinding
         ) else {
             throw SessionError.imapError(status: .no, text: "No supported SASL mechanisms.")
         }

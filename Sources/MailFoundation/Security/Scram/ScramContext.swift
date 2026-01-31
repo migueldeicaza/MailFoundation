@@ -52,6 +52,25 @@ public enum ScramHashAlgorithm: Sendable {
     }
 }
 
+/// Channel binding data for SCRAM-PLUS mechanisms.
+public struct ScramChannelBinding: Sendable, Equatable {
+    public let name: String
+    public let data: Data
+
+    public init(name: String, data: Data) {
+        self.name = name
+        self.data = data
+    }
+
+    public static func tlsUnique(_ data: Data) -> ScramChannelBinding {
+        ScramChannelBinding(name: "tls-unique", data: data)
+    }
+
+    public static func tlsServerEndPoint(_ data: Data) -> ScramChannelBinding {
+        ScramChannelBinding(name: "tls-server-end-point", data: data)
+    }
+}
+
 /// A SCRAM (Salted Challenge Response Authentication Mechanism) context.
 ///
 /// SCRAM provides a challenge-response authentication mechanism that:
@@ -111,6 +130,9 @@ public final class ScramContext: @unchecked Sendable {
     /// The optional authorization identity.
     public let authorizationId: String?
 
+    /// Optional channel binding data for SCRAM-PLUS.
+    private let channelBinding: ScramChannelBinding?
+
     /// Whether authentication has completed successfully.
     public private(set) var isAuthenticated = false
 
@@ -123,6 +145,7 @@ public final class ScramContext: @unchecked Sendable {
     private var serverFirstMessage: String?
     private var saltedPassword: Data?
     private var authMessage: Data?
+    private var gs2Header: String?
 
     /// Creates a new SCRAM context.
     ///
@@ -135,12 +158,14 @@ public final class ScramContext: @unchecked Sendable {
         username: String,
         password: String,
         algorithm: ScramHashAlgorithm,
-        authorizationId: String? = nil
+        authorizationId: String? = nil,
+        channelBinding: ScramChannelBinding? = nil
     ) {
         self.username = username
         self.password = password
         self.algorithm = algorithm
         self.authorizationId = authorizationId
+        self.channelBinding = channelBinding
     }
 
     /// Gets the SASL mechanism name.
@@ -157,6 +182,7 @@ public final class ScramContext: @unchecked Sendable {
         saltedPassword = nil
         authMessage = nil
         cnonce = nil
+        gs2Header = nil
     }
 
     /// Gets the initial client message (client-first-message).
@@ -179,13 +205,10 @@ public final class ScramContext: @unchecked Sendable {
         let normalizedUsername = normalize(username)
         clientFirstMessageBare = "n=\(normalizedUsername),r=\(cnonce!)"
 
-        // Build channel binding flag
-        // n = client doesn't support channel binding
-        // y = client supports but thinks server doesn't
-        // p = client requires channel binding
-        let gs2Header = "n,,\(saslPrepAuthzId(authorizationId))"
+        let header = buildGs2Header()
+        gs2Header = header
 
-        let message = gs2Header + clientFirstMessageBare!
+        let message = header + clientFirstMessageBare!
         state = .final
 
         return Data(message.utf8)
@@ -238,11 +261,16 @@ public final class ScramContext: @unchecked Sendable {
         let preparedPassword = saslPrep(password)
         saltedPassword = try hi(Data(preparedPassword.utf8), salt: saltData, iterations: iterations)
 
-        // Build channel-binding data (base64 of "n,,")
-        let channelBinding = Data("n,,".utf8).base64EncodedString()
+        let header = gs2Header ?? buildGs2Header()
+        gs2Header = header
+        var channelBindingInput = Data(header.utf8)
+        if let channelBinding {
+            channelBindingInput.append(channelBinding.data)
+        }
+        let channelBindingEncoded = channelBindingInput.base64EncodedString()
 
         // Build client-final-message-without-proof
-        let withoutProof = "c=\(channelBinding),r=\(nonce)"
+        let withoutProof = "c=\(channelBindingEncoded),r=\(nonce)"
 
         // Build auth message: client-first-message-bare + "," + server-first-message + "," + client-final-message-without-proof
         let authMessageStr = "\(clientFirstMessageBare!),\(serverFirstMessage!),\(withoutProof)"
@@ -428,7 +456,22 @@ public final class ScramContext: @unchecked Sendable {
         guard let authzid = authzid, !authzid.isEmpty else {
             return ""
         }
-        return "a=" + normalize(authzid) + ","
+        return "a=" + normalize(authzid)
+    }
+
+    private func buildGs2Header() -> String {
+        let authz = saslPrepAuthzId(authorizationId)
+        let cbFlag: String
+        if let channelBinding {
+            cbFlag = "p=\(channelBinding.name)"
+        } else {
+            cbFlag = "n"
+        }
+
+        if authz.isEmpty {
+            return "\(cbFlag),,"
+        }
+        return "\(cbFlag),\(authz),"
     }
 
     /// SASLprep string preparation (RFC 4013).

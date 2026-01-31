@@ -29,7 +29,7 @@ import Testing
 func imapStoreOpenInbox() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("* 2 EXISTS\r\n".utf8),
         Array("A0002 OK EXAMINE\r\n".utf8)
     ])
@@ -47,7 +47,7 @@ func imapStoreOpenInbox() throws {
 func imapStoreFolderCreateDeleteViaPath() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("A0002 OK CREATE\r\n".utf8),
         Array("A0003 OK DELETE\r\n".utf8)
     ])
@@ -64,7 +64,7 @@ func imapStoreFolderCreateDeleteViaPath() throws {
 func imapStoreFolderSubscribeUnsubscribeViaFolder() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("A0002 OK SUBSCRIBE\r\n".utf8),
         Array("A0003 OK UNSUBSCRIBE\r\n".utf8)
     ])
@@ -81,7 +81,7 @@ func imapStoreFolderSubscribeUnsubscribeViaFolder() throws {
 func imapStoreFolderRenameUpdatesSelection() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("* 2 EXISTS\r\n".utf8),
         Array("A0002 OK SELECT\r\n".utf8),
         Array("A0003 OK RENAME\r\n".utf8)
@@ -101,7 +101,7 @@ func imapStoreFolderRenameUpdatesSelection() throws {
 func imapFolderRenameUpdatesSelection() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("* 2 EXISTS\r\n".utf8),
         Array("A0002 OK SELECT\r\n".utf8),
         Array("A0003 OK RENAME\r\n".utf8)
@@ -123,7 +123,7 @@ func imapFolderRenameUpdatesSelection() throws {
 func imapFolderDeleteClearsSelection() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("* 1 EXISTS\r\n".utf8),
         Array("A0002 OK SELECT\r\n".utf8),
         Array("A0003 OK DELETE\r\n".utf8)
@@ -144,7 +144,7 @@ func imapFolderDeleteClearsSelection() throws {
 func imapFolderSort() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("* 1 EXISTS\r\n".utf8),
         Array("A0002 OK EXAMINE\r\n".utf8),
         Array("* SORT 2 1\r\n".utf8),
@@ -163,7 +163,7 @@ func imapFolderSort() throws {
 func imapFolderSearchIdSet() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("* 1 EXISTS\r\n".utf8),
         Array("A0002 OK EXAMINE\r\n".utf8),
         Array("* SEARCH 3 1\r\n".utf8),
@@ -190,7 +190,7 @@ func imapFolderSearchIdSet() throws {
 func imapStoreSearchIdSetUsesSelection() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("* 1 EXISTS\r\n".utf8),
         Array("A0002 OK EXAMINE\r\n".utf8),
         Array("* SEARCH 4 2\r\n".utf8),
@@ -216,7 +216,7 @@ func imapStoreSearchIdSetUsesSelection() throws {
 func imapStoreSearchUsesSelection() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("* 1 EXISTS\r\n".utf8),
         Array("A0002 OK EXAMINE\r\n".utf8),
         Array("* SEARCH 9 6\r\n".utf8),
@@ -235,7 +235,7 @@ func imapStoreSearchUsesSelection() throws {
 func imapStoreFetchSummariesUsesSelection() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("* 1 EXISTS\r\n".utf8),
         Array("A0002 OK EXAMINE\r\n".utf8),
         Array("* 1 FETCH (UID 10 FLAGS (\\Seen))\r\n".utf8),
@@ -274,7 +274,7 @@ func asyncImapStoreOpenInbox() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readOnly) }
@@ -329,7 +329,7 @@ func asyncImapStoreFetchSummariesUsesSelection() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readOnly) }
@@ -359,7 +359,7 @@ func asyncImapFolderSort() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readOnly) }
@@ -386,7 +386,7 @@ func asyncImapFolderUidSearchIdSet() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readOnly) }
@@ -419,7 +419,7 @@ func asyncImapStoreFolderCreateDeleteViaPath() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let createTask = Task { try await store.createFolder("Archive") }
@@ -443,7 +443,7 @@ func asyncImapStoreFolderSubscribeUnsubscribeViaFolder() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let folder = try await store.getFolder("News")
@@ -467,7 +467,7 @@ func asyncImapStoreFolderRenameUpdatesSelection() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readWrite) }
@@ -495,7 +495,7 @@ func asyncImapFolderRenameUpdatesSelection() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readWrite) }
@@ -524,7 +524,7 @@ func asyncImapFolderDeleteClearsSelection() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readWrite) }
@@ -574,7 +574,7 @@ func asyncImapStoreNamespace() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let nsTask = Task { try await store.namespace() }
@@ -599,7 +599,7 @@ func asyncImapStoreGetQuota() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let quotaTask = Task { try await store.getQuota("") }
@@ -624,7 +624,7 @@ func asyncImapStoreGetQuotaRoot() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let quotaRootTask = Task { try await store.getQuotaRoot("INBOX") }
@@ -648,7 +648,7 @@ func asyncImapStoreGetAcl() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let aclTask = Task { try await store.getAcl("INBOX") }
@@ -673,7 +673,7 @@ func asyncImapStoreSetAcl() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let setAclTask = Task { try await store.setAcl("INBOX", identifier: "bob", rights: "lrs") }
@@ -694,7 +694,7 @@ func asyncImapStoreListRights() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let listRightsTask = Task { try await store.listRights("INBOX", identifier: "bob") }
@@ -718,7 +718,7 @@ func asyncImapStoreMyRights() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let myRightsTask = Task { try await store.myRights("INBOX") }
@@ -741,7 +741,7 @@ func asyncImapStoreGetMetadata() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let metadataTask = Task { try await store.getMetadata("INBOX", entries: ["/private/comment"]) }
@@ -764,7 +764,7 @@ func asyncImapStoreSetMetadata() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let entry = ImapMetadataEntry(key: "/private/comment", value: "New comment")
@@ -786,7 +786,7 @@ func asyncImapStoreCopy() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readWrite) }
@@ -813,7 +813,7 @@ func asyncImapStoreUidCopy() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readWrite) }
@@ -844,7 +844,7 @@ func asyncImapStoreUidMove() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readWrite) }
@@ -876,7 +876,7 @@ func asyncImapFolderCopy() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readWrite) }
@@ -902,7 +902,7 @@ func asyncImapFolderMove() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readWrite) }
@@ -929,7 +929,7 @@ func asyncImapFolderStatus() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let folder = try await store.getFolder("INBOX")
@@ -955,7 +955,7 @@ func asyncImapFolderExpunge() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readWrite) }
@@ -983,7 +983,7 @@ func asyncImapFolderGetQuotaRoot() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readOnly) }
@@ -1011,7 +1011,7 @@ func asyncImapFolderGetAcl() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readOnly) }
@@ -1039,7 +1039,7 @@ func asyncImapFolderSetAcl() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readWrite) }
@@ -1065,7 +1065,7 @@ func asyncImapFolderMyRights() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readOnly) }
@@ -1093,7 +1093,7 @@ func asyncImapFolderGetMetadata() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readOnly) }
@@ -1121,7 +1121,7 @@ func asyncImapFolderSetMetadata() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readWrite) }
@@ -1148,7 +1148,7 @@ func asyncImapFolderUidSort() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readOnly) }
@@ -1176,7 +1176,7 @@ func asyncImapFolderUidSortIdSet() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readOnly) }
@@ -1209,7 +1209,7 @@ func asyncImapFolderSearchWithQuery() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readOnly) }
@@ -1237,7 +1237,7 @@ func asyncImapFolderUidFetchSummaries() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readOnly) }

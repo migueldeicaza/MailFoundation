@@ -39,7 +39,7 @@ func imapCopyUidResponseParsing() {
 func imapStoreCopyReturnsCopyUid() throws {
     let transport = TestTransport(incoming: [
         Array("* OK Ready\r\n".utf8),
-        Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8),
+        ImapTestFixtures.loginOk(),
         Array("* 1 EXISTS\r\n".utf8),
         Array("A0002 OK [UIDVALIDITY 7] EXAMINE\r\n".utf8),
         Array("A0003 OK [COPYUID 7 1:2 4:5] COPY\r\n".utf8)
@@ -71,7 +71,7 @@ func asyncImapStoreMoveReturnsCopyUid() async throws {
     _ = try await connectTask.value
 
     let authTask = Task { try await store.authenticate(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk())
     _ = try await authTask.value
 
     let openTask = Task { try await store.openInbox(access: .readWrite) }

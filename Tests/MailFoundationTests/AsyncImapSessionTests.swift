@@ -66,7 +66,7 @@ func asyncImapSessionLogin() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     let response = try await loginTask.value
 
     #expect(response?.isOk == true)
@@ -121,7 +121,7 @@ func asyncImapSessionSelect() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     // Select INBOX
@@ -152,7 +152,7 @@ func asyncImapSessionExamine() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let examineTask = Task { try await session.examine(mailbox: "Archive") }
@@ -175,7 +175,7 @@ func asyncImapSessionList() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let listTask = Task { try await session.list(reference: "", mailbox: "*") }
@@ -201,7 +201,7 @@ func asyncImapSessionCreateDelete() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     // Create
@@ -228,7 +228,7 @@ func asyncImapSessionRename() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let renameTask = Task { try await session.rename(mailbox: "OldName", newName: "NewName") }
@@ -249,7 +249,7 @@ func asyncImapSessionSubscription() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let subTask = Task { try await session.subscribe(mailbox: "News") }
@@ -274,7 +274,7 @@ func asyncImapSessionSearch() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
@@ -302,7 +302,7 @@ func asyncImapSessionSearchQuery() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
@@ -330,7 +330,7 @@ func asyncImapSessionUidSearchBasic() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
@@ -360,7 +360,7 @@ func asyncImapSessionFetch() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
@@ -391,7 +391,7 @@ func asyncImapSessionUidFetch() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
@@ -425,7 +425,7 @@ func asyncImapSessionCopy() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
@@ -452,7 +452,7 @@ func asyncImapSessionUidCopy() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
@@ -481,7 +481,7 @@ func asyncImapSessionMove() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
@@ -510,7 +510,7 @@ func asyncImapSessionStatus() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let statusTask = Task { try await session.status(mailbox: "INBOX", items: ["MESSAGES", "UNSEEN"]) }
@@ -534,7 +534,7 @@ func asyncImapSessionNamespace() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let nsTask = Task { try await session.namespace() }
@@ -559,7 +559,7 @@ func asyncImapSessionIdle() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
@@ -587,7 +587,7 @@ func asyncImapSessionNoop() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let noopTask = Task { try await session.noop() }
@@ -608,7 +608,7 @@ func asyncImapSessionExpunge() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
@@ -638,7 +638,7 @@ func asyncImapSessionGetQuota() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let quotaTask = Task { try await session.getQuota("") }
@@ -661,7 +661,7 @@ func asyncImapSessionGetAcl() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let aclTask = Task { try await session.getAcl(mailbox: "INBOX") }
@@ -703,7 +703,7 @@ func asyncImapSessionEnable() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let enableTask = Task { try await session.enable(["QRESYNC", "CONDSTORE"]) }
@@ -728,7 +728,7 @@ func asyncImapSessionClose() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     _ = try await loginTask.value
 
     let selectTask = Task { try await session.select(mailbox: "INBOX") }
@@ -762,7 +762,7 @@ func asyncImapSessionSplitResponses() async throws {
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
     // Send response in multiple yields but each is complete
-    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
     let response = try await loginTask.value
 
     #expect(response?.isOk == true)

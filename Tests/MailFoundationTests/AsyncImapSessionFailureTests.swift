@@ -64,7 +64,7 @@ struct AsyncImapSessionFailureTests {
         _ = try await connectTask.value
 
         let loginTask = Task { try await session.login(user: "user", password: "pass") }
-        await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+        await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
         _ = try await loginTask.value
 
         // Try to search without selecting a mailbox
@@ -95,7 +95,7 @@ struct AsyncImapSessionFailureTests {
         _ = try await connectTask.value
 
         let loginTask = Task { try await session.login(user: "user", password: "pass") }
-        await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 SORT] LOGIN completed\r\n".utf8))
+        await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
         _ = try await loginTask.value
 
         let selectTask = Task { try await session.select(mailbox: "NonExistent") }
