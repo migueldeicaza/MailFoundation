@@ -84,6 +84,27 @@ public actor OpenSSLTransport: AsyncStartTlsTransport {
         readerTask = Task { await readLoop() }
     }
 
+    /// Starts the transport with implicit TLS enabled (for IMAPS/SMTPS on port 993/465).
+    ///
+    /// This method establishes the socket connection and performs the TLS
+    /// handshake before any reads occur.
+    ///
+    /// - Parameter validateCertificate: Whether to validate the server certificate.
+    public func startSecure(validateCertificate: Bool = true) async throws {
+        guard !started else { return }
+        started = true
+
+        do {
+            socketFD = try openSocket()
+            try await startTLS(validateCertificate: validateCertificate)
+        } catch {
+            await stop()
+            throw error
+        }
+
+        readerTask = Task { await readLoop() }
+    }
+
     public func stop() async {
         guard started else { return }
         started = false

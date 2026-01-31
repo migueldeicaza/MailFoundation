@@ -1006,7 +1006,7 @@ func imapResponseParser() {
 @Test("IMAP command serialization extras")
 func imapCommandSerializationExtras() {
     #expect(ImapCommandKind.create("INBOX").command(tag: "A1").serialized == "A1 CREATE INBOX\r\n")
-    #expect(ImapCommandKind.list("\"\"", "*").command(tag: "A1").serialized == "A1 LIST \"\" *\r\n")
+    #expect(ImapCommandKind.list("", "*").command(tag: "A1").serialized == "A1 LIST \"\" \"*\"\r\n")
     #expect(ImapCommandKind.status("INBOX", items: ["MESSAGES", "UIDNEXT"]).command(tag: "A1").serialized == "A1 STATUS INBOX (MESSAGES UIDNEXT)\r\n")
     #expect(ImapCommandKind.uidFetch("1:*", "(FLAGS)").command(tag: "A1").serialized == "A1 UID FETCH 1:* (FLAGS)\r\n")
     #expect(ImapCommandKind.enable(["UTF8=ACCEPT"]).command(tag: "A1").serialized == "A1 ENABLE UTF8=ACCEPT\r\n")

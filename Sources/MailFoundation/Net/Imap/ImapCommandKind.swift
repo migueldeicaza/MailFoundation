@@ -28,6 +28,51 @@
 // IMAP command definitions.
 //
 
+/// Quotes a string for use in IMAP commands.
+///
+/// Always wraps the string in double quotes and escapes backslashes and quotes.
+private func imapQuote(_ value: String) -> String {
+    var result = "\""
+    for ch in value {
+        if ch == "\\" || ch == "\"" {
+            result.append("\\")
+        }
+        result.append(ch)
+    }
+    result.append("\"")
+    return result
+}
+
+/// Returns true if the scalar is a valid IMAP atom character.
+///
+/// Mirrors MailKit's atom character rules.
+private func imapIsAtomScalar(_ scalar: Unicode.Scalar) -> Bool {
+    if scalar.value >= 0x80 || scalar.value <= 0x1F || scalar.value == 0x7F {
+        return false
+    }
+    switch scalar.value {
+    case 0x28, 0x29, 0x7B, 0x20, 0x25, 0x2A, 0x5C, 0x22, 0x5D:
+        return false
+    default:
+        return true
+    }
+}
+
+/// Formats an IMAP astring, quoting when needed.
+///
+/// This mirrors MailKit's atom/quoted selection (without literal support).
+private func imapAString(_ value: String) -> String {
+    guard !value.isEmpty else {
+        return "\"\""
+    }
+    for scalar in value.unicodeScalars {
+        if !imapIsAtomScalar(scalar) {
+            return imapQuote(value)
+        }
+    }
+    return value
+}
+
 public enum ImapCommandKind: Sendable {
     case capability
     case noop
@@ -90,28 +135,28 @@ public enum ImapCommandKind: Sendable {
             }
             return ImapCommand(tag: tag, name: "AUTHENTICATE", arguments: mechanism)
         case let .select(mailbox):
-            return ImapCommand(tag: tag, name: "SELECT", arguments: mailbox)
+            return ImapCommand(tag: tag, name: "SELECT", arguments: imapAString(mailbox))
         case let .examine(mailbox):
-            return ImapCommand(tag: tag, name: "EXAMINE", arguments: mailbox)
+            return ImapCommand(tag: tag, name: "EXAMINE", arguments: imapAString(mailbox))
         case .logout:
             return ImapCommand(tag: tag, name: "LOGOUT")
         case let .create(mailbox):
-            return ImapCommand(tag: tag, name: "CREATE", arguments: mailbox)
+            return ImapCommand(tag: tag, name: "CREATE", arguments: imapAString(mailbox))
         case let .delete(mailbox):
-            return ImapCommand(tag: tag, name: "DELETE", arguments: mailbox)
+            return ImapCommand(tag: tag, name: "DELETE", arguments: imapAString(mailbox))
         case let .rename(from, to):
-            return ImapCommand(tag: tag, name: "RENAME", arguments: "\(from) \(to)")
+            return ImapCommand(tag: tag, name: "RENAME", arguments: "\(imapAString(from)) \(imapAString(to))")
         case let .subscribe(mailbox):
-            return ImapCommand(tag: tag, name: "SUBSCRIBE", arguments: mailbox)
+            return ImapCommand(tag: tag, name: "SUBSCRIBE", arguments: imapAString(mailbox))
         case let .unsubscribe(mailbox):
-            return ImapCommand(tag: tag, name: "UNSUBSCRIBE", arguments: mailbox)
+            return ImapCommand(tag: tag, name: "UNSUBSCRIBE", arguments: imapAString(mailbox))
         case let .list(reference, mailbox):
-            return ImapCommand(tag: tag, name: "LIST", arguments: "\(reference) \(mailbox)")
+            return ImapCommand(tag: tag, name: "LIST", arguments: "\(imapAString(reference)) \(imapAString(mailbox))")
         case let .lsub(reference, mailbox):
-            return ImapCommand(tag: tag, name: "LSUB", arguments: "\(reference) \(mailbox)")
+            return ImapCommand(tag: tag, name: "LSUB", arguments: "\(imapAString(reference)) \(imapAString(mailbox))")
         case let .status(mailbox, items):
             let itemList = items.joined(separator: " ")
-            return ImapCommand(tag: tag, name: "STATUS", arguments: "\(mailbox) (\(itemList))")
+            return ImapCommand(tag: tag, name: "STATUS", arguments: "\(imapAString(mailbox)) (\(itemList))")
         case .check:
             return ImapCommand(tag: tag, name: "CHECK")
         case .close:
@@ -121,34 +166,34 @@ public enum ImapCommandKind: Sendable {
         case .namespace:
             return ImapCommand(tag: tag, name: "NAMESPACE")
         case let .getQuota(root):
-            return ImapCommand(tag: tag, name: "GETQUOTA", arguments: root)
+            return ImapCommand(tag: tag, name: "GETQUOTA", arguments: imapAString(root))
         case let .getQuotaRoot(mailbox):
-            return ImapCommand(tag: tag, name: "GETQUOTAROOT", arguments: mailbox)
+            return ImapCommand(tag: tag, name: "GETQUOTAROOT", arguments: imapAString(mailbox))
         case let .getAcl(mailbox):
-            return ImapCommand(tag: tag, name: "GETACL", arguments: mailbox)
+            return ImapCommand(tag: tag, name: "GETACL", arguments: imapAString(mailbox))
         case let .setAcl(mailbox, identifier, rights):
-            return ImapCommand(tag: tag, name: "SETACL", arguments: "\(mailbox) \(identifier) \(rights)")
+            return ImapCommand(tag: tag, name: "SETACL", arguments: "\(imapAString(mailbox)) \(imapAString(identifier)) \(imapAString(rights))")
         case let .listRights(mailbox, identifier):
-            return ImapCommand(tag: tag, name: "LISTRIGHTS", arguments: "\(mailbox) \(identifier)")
+            return ImapCommand(tag: tag, name: "LISTRIGHTS", arguments: "\(imapAString(mailbox)) \(imapAString(identifier))")
         case let .myRights(mailbox):
-            return ImapCommand(tag: tag, name: "MYRIGHTS", arguments: mailbox)
+            return ImapCommand(tag: tag, name: "MYRIGHTS", arguments: imapAString(mailbox))
         case let .getMetadata(mailbox, options, entries):
             let entryList = ImapMetadata.formatEntryList(entries)
             if let options = options?.arguments() {
-                return ImapCommand(tag: tag, name: "GETMETADATA", arguments: "\(mailbox) \(options) \(entryList)")
+                return ImapCommand(tag: tag, name: "GETMETADATA", arguments: "\(imapAString(mailbox)) \(options) \(entryList)")
             }
-            return ImapCommand(tag: tag, name: "GETMETADATA", arguments: "\(mailbox) \(entryList)")
+            return ImapCommand(tag: tag, name: "GETMETADATA", arguments: "\(imapAString(mailbox)) \(entryList)")
         case let .setMetadata(mailbox, entries):
             let entryList = ImapMetadata.formatEntryPairs(entries)
-            return ImapCommand(tag: tag, name: "SETMETADATA", arguments: "\(mailbox) \(entryList)")
+            return ImapCommand(tag: tag, name: "SETMETADATA", arguments: "\(imapAString(mailbox)) \(entryList)")
         case let .getAnnotation(mailbox, entries, attributes):
             let entryList = ImapAnnotation.formatEntryList(entries)
             let attributeList = ImapAnnotation.formatAttributeList(attributes)
-            return ImapCommand(tag: tag, name: "GETANNOTATION", arguments: "\(mailbox) \(entryList) \(attributeList)")
+            return ImapCommand(tag: tag, name: "GETANNOTATION", arguments: "\(imapAString(mailbox)) \(entryList) \(attributeList)")
         case let .setAnnotation(mailbox, entry, attributes):
             let attributeList = ImapAnnotation.formatAttributes(attributes)
             let entryName = ImapMetadata.atomOrQuoted(entry)
-            return ImapCommand(tag: tag, name: "SETANNOTATION", arguments: "\(mailbox) \(entryName) \(attributeList)")
+            return ImapCommand(tag: tag, name: "SETANNOTATION", arguments: "\(imapAString(mailbox)) \(entryName) \(attributeList)")
         case let .id(arguments):
             return ImapCommand(tag: tag, name: "ID", arguments: arguments)
         case let .fetch(set, items):
@@ -156,9 +201,9 @@ public enum ImapCommandKind: Sendable {
         case let .store(set, data):
             return ImapCommand(tag: tag, name: "STORE", arguments: "\(set) \(data)")
         case let .copy(set, mailbox):
-            return ImapCommand(tag: tag, name: "COPY", arguments: "\(set) \(mailbox)")
+            return ImapCommand(tag: tag, name: "COPY", arguments: "\(set) \(imapAString(mailbox))")
         case let .move(set, mailbox):
-            return ImapCommand(tag: tag, name: "MOVE", arguments: "\(set) \(mailbox)")
+            return ImapCommand(tag: tag, name: "MOVE", arguments: "\(set) \(imapAString(mailbox))")
         case let .search(criteria):
             return ImapCommand(tag: tag, name: "SEARCH", arguments: criteria)
         case let .sort(criteria):
@@ -168,9 +213,9 @@ public enum ImapCommandKind: Sendable {
         case let .uidStore(set, data):
             return ImapCommand(tag: tag, name: "UID STORE", arguments: "\(set) \(data)")
         case let .uidCopy(set, mailbox):
-            return ImapCommand(tag: tag, name: "UID COPY", arguments: "\(set) \(mailbox)")
+            return ImapCommand(tag: tag, name: "UID COPY", arguments: "\(set) \(imapAString(mailbox))")
         case let .uidMove(set, mailbox):
-            return ImapCommand(tag: tag, name: "UID MOVE", arguments: "\(set) \(mailbox)")
+            return ImapCommand(tag: tag, name: "UID MOVE", arguments: "\(set) \(imapAString(mailbox))")
         case let .uidSearch(criteria):
             return ImapCommand(tag: tag, name: "UID SEARCH", arguments: criteria)
         case let .uidSort(criteria):

@@ -68,6 +68,11 @@ public actor AsyncImapClient {
         state == .disconnected
     }
 
+    /// Sets the protocol logger for debugging.
+    public func setProtocolLogger(_ logger: sending ProtocolLoggerType) {
+        self.protocolLogger = logger
+    }
+
     public init(transport: AsyncTransport, protocolLogger: ProtocolLoggerType = NullProtocolLogger()) {
         self.transport = transport
         self.protocolLogger = protocolLogger
@@ -84,6 +89,52 @@ public actor AsyncImapClient {
             await self.setDisconnected()
             await queue.finish()
         }
+    }
+
+    /// Starts the client with implicit TLS enabled (for IMAPS on port 993).
+    ///
+    /// This method configures TLS before establishing the connection, which is
+    /// required for implicit TLS where encryption starts immediately.
+    ///
+    /// - Parameter validateCertificate: Whether to validate the server certificate.
+    /// - Throws: An error if the transport does not support implicit TLS or the connection fails.
+    public func startSecure(validateCertificate: Bool = true) async throws {
+        func finishStart() {
+            state = .connected
+            readerTask = Task {
+                for await chunk in transport.incoming {
+                    await queue.enqueue(chunk)
+                }
+                await self.setDisconnected()
+                await queue.finish()
+            }
+        }
+
+        #if canImport(Network)
+        if let networkTransport = transport as? NetworkTransport {
+            try await networkTransport.startSecure(validateCertificate: validateCertificate)
+            finishStart()
+            return
+        }
+        #endif
+
+        #if !os(iOS)
+        if let socketTransport = transport as? SocketTransport {
+            try await socketTransport.startSecure(validateCertificate: validateCertificate)
+            finishStart()
+            return
+        }
+        #endif
+
+        #if canImport(COpenSSL)
+        if let openSSLTransport = transport as? OpenSSLTransport {
+            try await openSSLTransport.startSecure(validateCertificate: validateCertificate)
+            finishStart()
+            return
+        }
+        #endif
+
+        throw AsyncTransportError.connectionFailed
     }
 
     private func setDisconnected() {

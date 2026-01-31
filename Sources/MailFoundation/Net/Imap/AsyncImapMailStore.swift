@@ -114,6 +114,22 @@ public actor AsyncImapMailStore: AsyncMailStore {
         await session.setTimeoutMilliseconds(milliseconds)
     }
 
+    /// Sets the protocol logger for debugging IMAP communication.
+    ///
+    /// Use this to capture the raw IMAP protocol exchange for debugging.
+    ///
+    /// - Parameter logger: The protocol logger to use.
+    ///
+    /// ## Example
+    ///
+    /// ```swift
+    /// let logger = try ProtocolLogger(filePath: "/tmp/imap-debug.log")
+    /// await store.setProtocolLogger(logger)
+    /// ```
+    public func setProtocolLogger(_ logger: sending ProtocolLoggerType) async {
+        await session.setProtocolLogger(logger)
+    }
+
     /// Creates a new async IMAP mail store connected to the specified host.
     ///
     /// This factory method creates the underlying transport and initializes the mail store.
@@ -175,6 +191,20 @@ public actor AsyncImapMailStore: AsyncMailStore {
     @discardableResult
     public func connect() async throws -> ImapResponse? {
         try await session.connect()
+    }
+
+    /// Connects to the IMAP server with implicit TLS (for IMAPS on port 993).
+    ///
+    /// This method enables TLS immediately after establishing the connection,
+    /// before waiting for the IMAP server greeting. Use this for IMAPS
+    /// connections (typically port 993) where TLS is required from the start.
+    ///
+    /// - Parameter validateCertificate: Whether to validate the server's TLS certificate.
+    /// - Returns: The server's greeting response, or `nil` if none.
+    /// - Throws: An error if the transport does not support implicit TLS or the connection fails.
+    @discardableResult
+    public func connectSecure(validateCertificate: Bool = true) async throws -> ImapResponse? {
+        try await session.connectSecure(validateCertificate: validateCertificate)
     }
 
     /// Disconnects from the IMAP server.
@@ -1040,6 +1070,18 @@ public actor AsyncImapFolder: AsyncMailFolder {
 
     public func uidFetchSummaries(_ set: UniqueIdSet, request: FetchRequest, previewLength: Int = 512) async throws -> [MessageSummary] {
         try await session.uidFetchSummaries(set, request: request, previewLength: previewLength)
+    }
+
+    /// Fetches raw message body sections by UID.
+    ///
+    /// Use `BODY[]` to fetch the entire message, or specify section parts like `BODY[1]`.
+    ///
+    /// - Parameters:
+    ///   - set: The set of UIDs to fetch.
+    ///   - items: The FETCH items string (e.g., "BODY[]" or "BODY.PEEK[]").
+    /// - Returns: Array of fetch body maps containing the raw message data.
+    public func uidFetchBodySections(_ set: UniqueIdSet, items: String, maxEmptyReads: Int = 10) async throws -> [ImapFetchBodyMap] {
+        try await session.uidFetchBodySections(set, items: items, maxEmptyReads: maxEmptyReads)
     }
 
     public func getQuotaRoot(maxEmptyReads: Int = 10) async throws -> ImapQuotaRootResult {

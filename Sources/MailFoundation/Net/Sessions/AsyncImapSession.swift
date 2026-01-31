@@ -59,6 +59,13 @@ public actor AsyncImapSession {
         timeoutMilliseconds = milliseconds
     }
 
+    /// Sets the protocol logger for debugging IMAP communication.
+    ///
+    /// - Parameter logger: The protocol logger to use.
+    public func setProtocolLogger(_ logger: sending ProtocolLoggerType) async {
+        await client.setProtocolLogger(logger)
+    }
+
     public init(transport: AsyncTransport, timeoutMilliseconds: Int = defaultImapTimeoutMs) {
         self.transport = transport
         self.client = AsyncImapClient(transport: transport)
@@ -90,6 +97,23 @@ public actor AsyncImapSession {
     public func connect() async throws -> ImapResponse? {
         try await withSessionTimeout {
             try await self.client.start()
+            return await self.waitForGreeting()
+        }
+    }
+
+    /// Connects with implicit TLS (for IMAPS on port 993).
+    ///
+    /// This method configures TLS before establishing the connection,
+    /// which is required for IMAPS connections (typically port 993)
+    /// where TLS is required from the start.
+    ///
+    /// - Parameter validateCertificate: Whether to validate the server's TLS certificate.
+    /// - Returns: The server's greeting response, or `nil` if none.
+    /// - Throws: An error if the transport does not support implicit TLS or the connection fails.
+    @discardableResult
+    public func connectSecure(validateCertificate: Bool = true) async throws -> ImapResponse? {
+        return try await withSessionTimeout {
+            try await self.client.startSecure(validateCertificate: validateCertificate)
             return await self.waitForGreeting()
         }
     }
@@ -1571,6 +1595,54 @@ public actor AsyncImapSession {
         try await ensureSelected()
         return try await withSessionTimeout {
             let command = try await self.client.send(.fetch(set, items))
+            var messages: [ImapLiteralMessage] = []
+            var events: [ImapQresyncEvent] = []
+            var emptyReads = 0
+
+            while emptyReads < maxEmptyReads {
+                try Task.checkCancellation()
+                let batch = await self.client.nextMessages()
+                if batch.isEmpty {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
+                    emptyReads += 1
+                    continue
+                }
+                emptyReads = 0
+                for message in batch {
+                    messages.append(message)
+                    if let event = await self.ingestSelectedState(from: message, validity: validity) {
+                        events.append(event)
+                    }
+                    if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                        if response.isOk {
+                            let bodies = ImapFetchBodyParser.parseMaps(messages)
+                            return ImapFetchBodyQresyncResult(bodies: bodies, qresyncEvents: events)
+                        }
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                }
+            }
+
+            throw SessionError.timeout
+        }
+    }
+
+    public func uidFetchBodySections(_ set: UniqueIdSet, items: String, maxEmptyReads: Int = 10) async throws -> [ImapFetchBodyMap] {
+        let result = try await uidFetchBodySectionsWithQresync(set, items: items, maxEmptyReads: maxEmptyReads)
+        return result.bodies
+    }
+
+    public func uidFetchBodySectionsWithQresync(
+        _ set: UniqueIdSet,
+        items: String,
+        validity: UInt32? = nil,
+        maxEmptyReads: Int = 10
+    ) async throws -> ImapFetchBodyQresyncResult {
+        try await ensureSelected()
+        return try await withSessionTimeout {
+            let command = try await self.client.send(.uidFetch(set.description, items))
             var messages: [ImapLiteralMessage] = []
             var events: [ImapQresyncEvent] = []
             var emptyReads = 0

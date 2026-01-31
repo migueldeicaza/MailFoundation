@@ -88,6 +88,43 @@ public actor SocketTransport: AsyncStartTlsTransport {
         readerTask = Task { await readLoop() }
     }
 
+    /// Starts the transport with implicit TLS enabled (for IMAPS/SMTPS on port 993/465).
+    ///
+    /// This method sets up TLS before opening the streams, which is required for
+    /// implicit TLS connections where encryption starts immediately.
+    ///
+    /// - Parameter validateCertificate: Whether to validate the server certificate.
+    public func startSecure(validateCertificate: Bool = true) async throws {
+        guard !started else { return }
+        started = true
+
+        if input == nil || output == nil {
+            Stream.getStreamsToHost(withName: host, port: port, inputStream: &input, outputStream: &output)
+        }
+
+        guard let input, let output else {
+            started = false
+            throw AsyncTransportError.connectionFailed
+        }
+
+        // Set SSL properties BEFORE opening streams for implicit TLS
+        let settings: [String: Any] = [
+            kCFStreamSSLPeerName as String: host,
+            kCFStreamSSLValidatesCertificateChain as String: validateCertificate
+        ]
+        let key = Stream.PropertyKey(kCFStreamPropertySSLSettings as String)
+        let inputOk = input.setProperty(settings, forKey: key)
+        let outputOk = output.setProperty(settings, forKey: key)
+        guard inputOk && outputOk else {
+            started = false
+            throw AsyncTransportError.connectionFailed
+        }
+
+        input.open()
+        output.open()
+        readerTask = Task { await readLoop() }
+    }
+
     public func stop() async {
         guard started else { return }
         started = false
