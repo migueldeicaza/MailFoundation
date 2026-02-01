@@ -1474,6 +1474,12 @@ public final class ImapSession {
 
     public func notify(arguments: String) throws -> ImapResponse {
         try ensureAuthenticated()
+        if client.capabilities == nil {
+            _ = try? capability()
+        }
+        guard client.capabilities?.supports("NOTIFY") == true else {
+            throw SessionError.notifyNotSupported
+        }
         let command = client.send(.notify(arguments))
         try ensureWrite()
         var reads = 0
@@ -1555,6 +1561,12 @@ public final class ImapSession {
 
     public func startIdle() throws -> ImapResponse {
         try ensureSelected()
+        if client.capabilities == nil {
+            _ = try? capability()
+        }
+        guard client.capabilities?.supports("IDLE") == true else {
+            throw SessionError.idleNotSupported
+        }
         let command = client.send(.idle)
         idleTag = command.tag
         try ensureWrite()

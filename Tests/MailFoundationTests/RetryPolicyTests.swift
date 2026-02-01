@@ -173,6 +173,8 @@ func errorClassifierSessionError() {
     #expect(defaultErrorClassifier(SessionError.transportWriteFailed) == .requiresReconnection)
     #expect(defaultErrorClassifier(SessionError.invalidState(expected: .connected, actual: .disconnected)) == .permanent)
     #expect(defaultErrorClassifier(SessionError.startTlsNotSupported) == .permanent)
+    #expect(defaultErrorClassifier(SessionError.idleNotSupported) == .permanent)
+    #expect(defaultErrorClassifier(SessionError.notifyNotSupported) == .permanent)
 
     // SMTP 4xx is transient, 5xx is permanent
     #expect(defaultErrorClassifier(SessionError.smtpError(code: 450, message: "Try again", enhancedStatusCode: nil)) == .transient)
@@ -408,6 +410,8 @@ func sessionErrorRetryableConformance() {
     #expect(SessionError.transportWriteFailed.isRetryable == true)
     #expect(SessionError.invalidState(expected: .connected, actual: .disconnected).isRetryable == false)
     #expect(SessionError.startTlsNotSupported.isRetryable == false)
+    #expect(SessionError.idleNotSupported.isRetryable == false)
+    #expect(SessionError.notifyNotSupported.isRetryable == false)
     #expect(SessionError.smtpError(code: 421, message: "Busy", enhancedStatusCode: nil).isRetryable == true)
     #expect(SessionError.smtpError(code: 550, message: "Invalid", enhancedStatusCode: nil).isRetryable == false)
     #expect(SessionError.pop3Error(message: "Error").isRetryable == false)

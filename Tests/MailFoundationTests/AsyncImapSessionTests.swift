@@ -66,7 +66,7 @@ func asyncImapSessionLogin() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1", "IDLE", "SORT"], message: "completed"))
     let response = try await loginTask.value
 
     #expect(response?.isOk == true)
@@ -121,7 +121,7 @@ func asyncImapSessionSelect() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1", "IDLE", "SORT"], message: "completed"))
     _ = try await loginTask.value
 
     // Select INBOX
@@ -152,7 +152,7 @@ func asyncImapSessionExamine() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1", "IDLE", "SORT"], message: "completed"))
     _ = try await loginTask.value
 
     let examineTask = Task { try await session.examine(mailbox: "Archive") }
@@ -559,7 +559,7 @@ func asyncImapSessionIdle() async throws {
     _ = try await connectTask.value
 
     let loginTask = Task { try await session.login(user: "user", password: "pass") }
-    await transport.yieldIncoming(ImapTestFixtures.loginOk(message: "completed"))
+    await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1", "IDLE", "SORT"], message: "completed"))
     _ = try await loginTask.value
 
     let selectTask = Task { try await session.select(mailbox: "INBOX") }

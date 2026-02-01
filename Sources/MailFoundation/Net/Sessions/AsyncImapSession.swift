@@ -1029,6 +1029,12 @@ public actor AsyncImapSession {
 
     public func notify(arguments: String, maxEmptyReads: Int = 10) async throws -> ImapResponse {
         try await ensureAuthenticated()
+        if await client.capabilities == nil {
+            _ = try? await capability()
+        }
+        guard await client.capabilities?.supports("NOTIFY") == true else {
+            throw SessionError.notifyNotSupported
+        }
         return try await withSessionTimeout {
             let command = try await self.client.send(.notify(arguments))
             var emptyReads = 0
@@ -2087,6 +2093,12 @@ public actor AsyncImapSession {
 
     public func startIdle(maxEmptyReads: Int = 10) async throws -> ImapResponse {
         try await ensureSelected()
+        if await client.capabilities == nil {
+            _ = try? await capability()
+        }
+        guard await client.capabilities?.supports("IDLE") == true else {
+            throw SessionError.idleNotSupported
+        }
         return try await withSessionTimeout {
             let command = try await self.client.send(.idle)
             await self.setIdleTag(command.tag)

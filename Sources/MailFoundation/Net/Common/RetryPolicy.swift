@@ -257,6 +257,10 @@ public let defaultErrorClassifier: ErrorClassifier = { error in
             return .permanent
         case .compressionNotSupported:
             return .permanent
+        case .idleNotSupported:
+            return .permanent
+        case .notifyNotSupported:
+            return .permanent
         case let .smtpError(code, _, _):
             // SMTP 4xx codes are transient, 5xx are permanent
             return (400..<500).contains(code) ? .transient : .permanent
@@ -540,6 +544,10 @@ extension SessionError: RetryableError {
         case .startTlsNotSupported:
             return false
         case .compressionNotSupported:
+            return false
+        case .idleNotSupported:
+            return false
+        case .notifyNotSupported:
             return false
         case let .smtpError(code, _, _):
             return (400..<500).contains(code)

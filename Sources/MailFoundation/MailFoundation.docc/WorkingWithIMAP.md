@@ -60,6 +60,9 @@ _ = try session.notify(arguments: notifyArgs)
 _ = try session.compress(algorithm: "DEFLATE")
 ```
 
+`notify` requires the `NOTIFY` capability and throws
+``SessionError/notifyNotSupported`` when the server does not advertise it.
+
 `compress` requires a transport that supports compression and a server
 advertising a matching `COMPRESS=...` capability.
 
@@ -380,22 +383,31 @@ Use IDLE for real-time notifications:
 
 ```swift
 // Start IDLE mode
-try session.idle { event in
+_ = try session.startIdle()
+
+// Read events
+let events = session.readIdleEvents()
+for event in events {
     switch event {
     case .exists(let count):
         print("New message! Total: \(count)")
     case .expunge(let sequenceNumber):
         print("Message \(sequenceNumber) was deleted")
-    case .flags(let sequenceNumber, let flags):
-        print("Flags changed for message \(sequenceNumber)")
+    case .flags(let flags):
+        print("Flags changed: \(flags)")
     case .alert(let message):
         print("Server alert: \(message)")
+    default:
+        break
     }
 }
 
 // Stop IDLE (call from another context)
-try session.done()
+try session.stopIdle()
 ```
+
+`startIdle` requires the `IDLE` capability and throws
+``SessionError/idleNotSupported`` when the server does not advertise it.
 
 ## QRESYNC - Efficient Synchronization
 

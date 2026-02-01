@@ -117,6 +117,57 @@ struct AsyncImapSessionFailureTests {
         #expect(await session.selectedMailbox == nil)
     }
 
+    @Test("Async IMAP session IDLE not supported")
+    func asyncImapSessionIdleNotSupported() async throws {
+        let transport = AsyncStreamTransport()
+        let session = AsyncImapSession(transport: transport)
+
+        let connectTask = Task { try await session.connect() }
+        await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+        _ = try await connectTask.value
+
+        let loginTask = Task { try await session.login(user: "user", password: "pass") }
+        await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1", "AUTH=PLAIN"]))
+        _ = try await loginTask.value
+
+        let examineTask = Task { try await session.examine(mailbox: "INBOX") }
+        await transport.yieldIncoming(Array("* 1 EXISTS\r\n".utf8))
+        await transport.yieldIncoming(Array("A0002 OK EXAMINE\r\n".utf8))
+        _ = try await examineTask.value
+
+        do {
+            _ = try await session.startIdle()
+            #expect(Bool(false), "Should have thrown idleNotSupported")
+        } catch let error as SessionError {
+            #expect(error == .idleNotSupported)
+        } catch {
+            #expect(Bool(false), "Unexpected error type: \(error)")
+        }
+    }
+
+    @Test("Async IMAP session NOTIFY not supported")
+    func asyncImapSessionNotifyNotSupported() async throws {
+        let transport = AsyncStreamTransport()
+        let session = AsyncImapSession(transport: transport)
+
+        let connectTask = Task { try await session.connect() }
+        await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+        _ = try await connectTask.value
+
+        let loginTask = Task { try await session.login(user: "user", password: "pass") }
+        await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1", "IDLE", "AUTH=PLAIN"]))
+        _ = try await loginTask.value
+
+        do {
+            _ = try await session.notify(arguments: "NONE")
+            #expect(Bool(false), "Should have thrown notifyNotSupported")
+        } catch let error as SessionError {
+            #expect(error == .notifyNotSupported)
+        } catch {
+            #expect(Bool(false), "Unexpected error type: \(error)")
+        }
+    }
+
     @Test("Async IMAP session handles protocol error")
     func asyncImapSessionProtocolError() async throws {
         let transport = AsyncStreamTransport()

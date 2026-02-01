@@ -259,6 +259,46 @@ func imapReplayFetchPreviewFallbackGmail() throws {
     #expect(transport.failures.isEmpty)
 }
 
+@Test("IMAP replay IDLE not supported")
+func imapReplayIdleNotSupported() throws {
+    let transport = ImapReplayTransport(steps: [
+        .greeting("gmail/gmail.greeting.txt"),
+        .command("A0001 LOGIN username password\r\n", fixture: "common/common.login-capability-no-idle.txt"),
+        .command("A0002 EXAMINE INBOX\r\n", fixture: "gmail/examine-inbox.txt")
+    ])
+
+    let session = ImapSession(transport: transport, maxReads: 6)
+    _ = try session.connect()
+    _ = try session.login(user: "username", password: "password")
+    _ = try session.examine(mailbox: "INBOX")
+
+    #expect(throws: SessionError.idleNotSupported) {
+        _ = try session.startIdle()
+    }
+    let wroteIdle = transport.written.contains { String(decoding: $0, as: UTF8.self).contains("IDLE") }
+    #expect(wroteIdle == false)
+    #expect(transport.failures.isEmpty)
+}
+
+@Test("IMAP replay NOTIFY not supported")
+func imapReplayNotifyNotSupported() throws {
+    let transport = ImapReplayTransport(steps: [
+        .greeting("gmail/gmail.greeting.txt"),
+        .command("A0001 LOGIN username password\r\n", fixture: "common/common.login-capability-no-notify.txt")
+    ])
+
+    let session = ImapSession(transport: transport, maxReads: 4)
+    _ = try session.connect()
+    _ = try session.login(user: "username", password: "password")
+
+    #expect(throws: SessionError.notifyNotSupported) {
+        _ = try session.notify(arguments: "NONE")
+    }
+    let wroteNotify = transport.written.contains { String(decoding: $0, as: UTF8.self).contains("NOTIFY") }
+    #expect(wroteNotify == false)
+    #expect(transport.failures.isEmpty)
+}
+
 @Test("IMAP replay NOTIFY set")
 func imapReplayNotifySet() throws {
     let arguments = "SET STATUS (PERSONAL (MailboxName SubscriptionChange)) " +
