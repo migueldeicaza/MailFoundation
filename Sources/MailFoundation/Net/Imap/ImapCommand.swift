@@ -42,6 +42,12 @@ public struct ImapCommand: Sendable {
     }
 
     public var serialized: String {
+        if tag.isEmpty {
+            if let arguments {
+                return "\(name) \(arguments)\r\n"
+            }
+            return "\(name)\r\n"
+        }
         if let arguments {
             return "\(tag) \(name) \(arguments)\r\n"
         }

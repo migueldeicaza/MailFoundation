@@ -174,6 +174,91 @@ func imapReplayListExtendedReturnOptions() throws {
     #expect(transport.failures.isEmpty)
 }
 
+@Test("IMAP replay Gmail FETCH PREVIEW")
+func imapReplayFetchPreviewGmail() throws {
+    let expected = [
+        "Planet Fitness https://view.email.planetfitness.com/?qs=9a098a031cabde68c0a4260051cd6fe473a2e997a53678ff26b4b199a711a9d2ad0536530d6f837c246b09f644d42016ecfb298f930b7af058e9e454b34f3d818ceb3052ae317b1ac4594aab28a2d788 View web ver",
+        "Don't miss our celebrity guest Monday evening",
+        "Planet Fitness https://view.email.planetfitness.com/?qs=9a098a031cabde68c0a4260051cd6fe473a2e997a53678ff26b4b199a711a9d2ad0536530d6f837c246b09f644d42016ecfb298f930b7af058e9e454b34f3d818ceb3052ae317b1ac4594aab28a2d788 View web ver",
+        "Planet Fitness https://view.email.planetfitness.com/?qs=9a098a031cabde68c0a4260051cd6fe473a2e997a53678ff26b4b199a711a9d2ad0536530d6f837c246b09f644d42016ecfb298f930b7af058e9e454b34f3d818ceb3052ae317b1ac4594aab28a2d788 View web ver",
+        "Don't miss our celebrity guest Monday evening",
+        "Planet Fitness https://view.email.planetfitness.com/?qs=9a098a031cabde68c0a4260051cd6fe473a2e997a53678ff26b4b199a711a9d2ad0536530d6f837c246b09f644d42016ecfb298f930b7af058e9e454b34f3d818ceb3052ae317b1ac4594aab28a2d788 View web ver"
+    ]
+
+    let transport = ImapReplayTransport(steps: [
+        .greeting("gmail/gmail.greeting.txt"),
+        .command("A0001 CAPABILITY\r\n", fixture: "gmail/capability.txt"),
+        .command("A0002 AUTHENTICATE PLAIN AHVzZXJuYW1lAHBhc3N3b3Jk\r\n", fixture: "gmail/authenticate+preview.txt"),
+        .command("A0003 NAMESPACE\r\n", fixture: "gmail/gmail.namespace.txt"),
+        .command("A0004 XLIST \"\" \"*\"\r\n", fixture: "gmail/xlist.txt"),
+        .command("A0005 EXAMINE INBOX\r\n", fixture: "gmail/examine-inbox.txt"),
+        .command("A0006 FETCH 1:* (ENVELOPE FLAGS INTERNALDATE RFC822.SIZE PREVIEW)\r\n", fixture: "gmail/fetch-preview.txt")
+    ])
+
+    let session = ImapSession(transport: transport, maxReads: 12)
+    _ = try session.connect()
+    _ = try session.authenticateSasl(user: "username", password: "password")
+    _ = try session.examine(mailbox: "INBOX")
+
+    let request = FetchRequest(items: [.envelope, .flags, .internalDate, .size, .previewText])
+    let summaries = try session.fetchSummaries("1:*", request: request)
+    #expect(summaries.count == expected.count)
+    for (summary, value) in zip(summaries, expected) {
+        #expect(summary.previewText == value)
+    }
+    #expect(transport.failures.isEmpty)
+}
+
+@Test("IMAP replay Gmail FETCH PREVIEW (LAZY)")
+func imapReplayFetchPreviewLazyGmail() throws {
+    let transport = ImapReplayTransport(steps: [
+        .greeting("gmail/gmail.greeting.txt"),
+        .command("A0001 CAPABILITY\r\n", fixture: "gmail/capability.txt"),
+        .command("A0002 AUTHENTICATE PLAIN AHVzZXJuYW1lAHBhc3N3b3Jk\r\n", fixture: "gmail/authenticate+preview.txt"),
+        .command("A0003 NAMESPACE\r\n", fixture: "gmail/gmail.namespace.txt"),
+        .command("A0004 XLIST \"\" \"*\"\r\n", fixture: "gmail/xlist.txt"),
+        .command("A0005 EXAMINE INBOX\r\n", fixture: "gmail/examine-inbox.txt"),
+        .command("A0006 FETCH 1:* (ENVELOPE FLAGS INTERNALDATE RFC822.SIZE PREVIEW (LAZY))\r\n", fixture: "gmail/fetch-preview.txt")
+    ])
+
+    let session = ImapSession(transport: transport, maxReads: 12)
+    _ = try session.connect()
+    _ = try session.authenticateSasl(user: "username", password: "password")
+    _ = try session.examine(mailbox: "INBOX")
+
+    let request = FetchRequest(
+        items: [.envelope, .flags, .internalDate, .size, .previewText],
+        previewOptions: .lazy
+    )
+    let summaries = try session.fetchSummaries("1:*", request: request)
+    #expect(summaries.count == 6)
+    #expect(transport.failures.isEmpty)
+}
+
+@Test("IMAP replay Gmail PREVIEW fallback via BODY.PEEK")
+func imapReplayFetchPreviewFallbackGmail() throws {
+    let transport = ImapReplayTransport(steps: [
+        .greeting("gmail/gmail.greeting.txt"),
+        .command("A0001 CAPABILITY\r\n", fixture: "gmail/capability.txt"),
+        .command("A0002 AUTHENTICATE PLAIN AHVzZXJuYW1lAHBhc3N3b3Jk\r\n", fixture: "gmail/authenticate.txt"),
+        .command("A0003 NAMESPACE\r\n", fixture: "gmail/gmail.namespace.txt"),
+        .command("A0004 XLIST \"\" \"*\"\r\n", fixture: "gmail/xlist.txt"),
+        .command("A0005 EXAMINE INBOX\r\n", fixture: "gmail/examine-inbox.txt"),
+        .command("A0006 FETCH 1:* BODY.PEEK[TEXT]<0.512>\r\n", fixture: "gmail/fetch-previewtext-peek-text-only.txt")
+    ])
+
+    let session = ImapSession(transport: transport, maxReads: 12)
+    _ = try session.connect()
+    _ = try session.authenticateSasl(user: "username", password: "password")
+    _ = try session.examine(mailbox: "INBOX")
+
+    let request = FetchRequest(items: [.previewText])
+    let summaries = try session.fetchSummaries("1:*", request: request)
+    #expect(summaries.count == 2)
+    #expect(summaries.allSatisfy { ($0.previewText ?? "").isEmpty == false })
+    #expect(transport.failures.isEmpty)
+}
+
 @Test("IMAP replay NOTIFY set")
 func imapReplayNotifySet() throws {
     let arguments = "SET STATUS (PERSONAL (MailboxName SubscriptionChange)) " +
@@ -193,21 +278,103 @@ func imapReplayNotifySet() throws {
     #expect(transport.failures.isEmpty)
 }
 
+@Test("IMAP replay NOTIFY flow")
+func imapReplayNotifyFlow() throws {
+    let arguments = "SET STATUS (PERSONAL (MailboxName SubscriptionChange)) " +
+        "(SELECTED (MessageNew (UID FLAGS ENVELOPE BODYSTRUCTURE MODSEQ) MessageExpunge FlagChange)) " +
+        "(SUBTREE (INBOX Folder) (MessageNew MessageExpunge MailboxMetadataChange ServerMetadataChange))"
+
+    let transport = ImapReplayTransport(steps: [
+        .greeting("dovecot/dovecot.greeting-preauth.txt"),
+        .command("A0001 NAMESPACE\r\n", fixture: "dovecot/dovecot.namespace.txt"),
+        .command("A0002 LIST \"\" INBOX RETURN (SUBSCRIBED CHILDREN)\r\n", fixture: "dovecot/dovecot.list-inbox.txt"),
+        .command("A0003 LIST \"\" \"%\" RETURN (SUBSCRIBED CHILDREN)\r\n", fixture: "dovecot/dovecot.notify-list-personal.txt"),
+        .command("A0004 EXAMINE Folder\r\n", fixture: "dovecot/dovecot.examine-folder.txt"),
+        .command("A0005 NOTIFY \(arguments)\r\n", fixture: "dovecot/dovecot.notify.txt"),
+        .command("A0006 IDLE\r\n", fixture: "dovecot/dovecot.notify-idle.txt"),
+        .serverPush("dovecot/dovecot.notify-idle-events.txt"),
+        .command("DONE\r\n", fixture: "dovecot/dovecot.notify-idle-done.txt", responseTag: "A0006"),
+        .command("A0007 NOTIFY NONE\r\n", fixture: "common/common.notify-none-ok.txt")
+    ])
+
+    let session = ImapSession(transport: transport, maxReads: 10)
+    _ = try session.connect()
+
+    _ = try session.namespace()
+
+    let inbox = try session.listExtended(reference: "", mailbox: "INBOX", returns: [.subscribed, .children])
+    #expect(inbox.contains { $0.name == "INBOX" })
+
+    let personal = try session.listExtended(reference: "", mailbox: "%", returns: [.subscribed, .children])
+    #expect(personal.contains { $0.name == "Archives" })
+
+    _ = try session.examine(mailbox: "Folder")
+
+    _ = try session.notify(arguments: arguments)
+    _ = try session.startIdle()
+    let events = session.readIdleEvents()
+    #expect(events.isEmpty == false)
+    try session.stopIdle()
+
+    _ = try session.notify(arguments: "NONE")
+    #expect(transport.failures.isEmpty)
+}
+
 @Test("IMAP replay COMPRESS")
 func imapReplayCompress() throws {
     let transport = ImapReplayTransport(steps: [
         .greeting("gmail/gmail.greeting.txt"),
-        .command("A0001 CAPABILITY\r\n", fixture: "gmail/authenticate.txt"),
+        .command("A0001 CAPABILITY\r\n", fixture: "common/common.capability-compress.txt"),
         .command("A0002 COMPRESS DEFLATE\r\n", fixture: "common/common.compress-ok.txt")
     ])
 
     let session = ImapSession(transport: transport, maxReads: 4)
     _ = try session.connect()
     _ = try session.capability()
+    #expect(session.capabilities?.supports("COMPRESS=DEFLATE") == true)
 
     let response = try session.compress()
     #expect(response.isOk)
     #expect(transport.compressionStarted == true)
     #expect(transport.compressionAlgorithm == "DEFLATE")
+    #expect(transport.failures.isEmpty)
+}
+
+@Test("IMAP replay COMPRESS already active")
+func imapReplayCompressAlreadyActive() throws {
+    let transport = ImapReplayTransport(steps: [
+        .greeting("gmail/gmail.greeting.txt"),
+        .command("A0001 CAPABILITY\r\n", fixture: "common/common.capability-compress.txt"),
+        .command("A0002 COMPRESS DEFLATE\r\n", fixture: "common/common.compress-active.txt")
+    ])
+
+    let session = ImapSession(transport: transport, maxReads: 4)
+    _ = try session.connect()
+    _ = try session.capability()
+    #expect(session.capabilities?.supports("COMPRESS=DEFLATE") == true)
+
+    let response = try session.compress()
+    #expect(response.isOk == false)
+    #expect(response.text.contains("COMPRESSIONACTIVE"))
+    #expect(transport.compressionStarted == false)
+    #expect(transport.failures.isEmpty)
+}
+
+@Test("IMAP replay COMPRESS fails")
+func imapReplayCompressFails() throws {
+    let transport = ImapReplayTransport(steps: [
+        .greeting("gmail/gmail.greeting.txt"),
+        .command("A0001 CAPABILITY\r\n", fixture: "common/common.capability-compress.txt"),
+        .command("A0002 COMPRESS DEFLATE\r\n", fixture: "common/common.compress-failed.txt")
+    ])
+
+    let session = ImapSession(transport: transport, maxReads: 4)
+    _ = try session.connect()
+    _ = try session.capability()
+    #expect(session.capabilities?.supports("COMPRESS=DEFLATE") == true)
+
+    #expect(throws: SessionError.imapError(status: .no, text: "Compress failed for an unknown reason.")) {
+        _ = try session.compress()
+    }
     #expect(transport.failures.isEmpty)
 }

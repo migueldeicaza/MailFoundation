@@ -47,3 +47,25 @@ func imapLiteralDecoderHandlesMultipleMessages() {
     #expect(messages.first?.literal == Array("HELLO".utf8))
     #expect(messages.last?.line.hasPrefix("* 2 FETCH") == true)
 }
+
+@Test("IMAP literal decoder handles split literal markers")
+func imapLiteralDecoderHandlesSplitLiteralMarkers() {
+    var decoder = ImapLiteralDecoder()
+    let part1 = Array("* 1 FETCH (BODY[] {4}\r".utf8)
+    #expect(decoder.append(part1).isEmpty == true)
+
+    let part2 = Array("\nABCD)\r\n".utf8)
+    let messages = decoder.append(part2)
+    #expect(messages.count == 1)
+    #expect(messages.first?.literal == Array("ABCD".utf8))
+}
+
+@Test("IMAP literal decoder handles zero-length literals")
+func imapLiteralDecoderHandlesZeroLengthLiterals() {
+    var decoder = ImapLiteralDecoder()
+    let bytes = Array("* 1 FETCH (BODY[] {0}\r\n)\r\n".utf8)
+    let messages = decoder.append(bytes)
+
+    #expect(messages.count == 1)
+    #expect(messages.first?.literal?.isEmpty == true)
+}

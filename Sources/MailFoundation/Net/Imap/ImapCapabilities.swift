@@ -123,23 +123,25 @@ public struct ImapCapabilities: Sendable, Equatable {
         if let bracketed = parseBracketedCapabilities(from: line) {
             return bracketed
         }
-
         var reader = ImapLineTokenReader(line: line)
-        var tokens: [String] = []
-        while let token = reader.readToken() {
-            if let value = token.stringValue {
-                tokens.append(value)
-            } else if token.type == .asterisk {
-                tokens.append("*")
-            }
-        }
-
-        guard let index = tokens.firstIndex(where: { $0.caseInsensitiveEquals("CAPABILITY") }) else {
+        guard let first = reader.readToken(), first.type == .asterisk else {
             return nil
         }
-        let capabilityTokens = tokens[(index + 1)...]
+        guard let commandToken = reader.readToken(),
+              commandToken.type == .atom,
+              let command = commandToken.stringValue,
+              command.caseInsensitiveEquals("CAPABILITY") else {
+            return nil
+        }
+
+        var capabilityTokens: [String] = []
+        while let token = reader.readToken() {
+            if let value = token.stringValue {
+                capabilityTokens.append(value)
+            }
+        }
         guard !capabilityTokens.isEmpty else { return nil }
-        return ImapCapabilities(tokens: Array(capabilityTokens))
+        return ImapCapabilities(tokens: capabilityTokens)
     }
 
     private static func parseBracketedCapabilities(from line: String) -> ImapCapabilities? {

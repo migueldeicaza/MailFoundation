@@ -37,6 +37,7 @@ public let defaultImapTimeoutMs = 120_000
 public actor AsyncImapSession {
     private let client: AsyncImapClient
     private let transport: AsyncTransport
+    private var idleTag: String?
     public private(set) var selectedMailbox: String?
     public private(set) var selectedState = ImapSelectedState()
     public private(set) var namespaces: ImapNamespaceResponse?
@@ -131,6 +132,7 @@ public actor AsyncImapSession {
         selectedState = ImapSelectedState()
         namespaces = nil
         specialUseMailboxes = []
+        idleTag = nil
     }
 
     public func capability() async throws -> ImapResponse? {
@@ -2087,6 +2089,7 @@ public actor AsyncImapSession {
         try await ensureSelected()
         return try await withSessionTimeout {
             let command = try await self.client.send(.idle)
+            await self.setIdleTag(command.tag)
             var emptyReads = 0
             while emptyReads < maxEmptyReads {
                 try Task.checkCancellation()
@@ -2101,10 +2104,12 @@ public actor AsyncImapSession {
                         return response
                     }
                     if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                        await self.setIdleTag(nil)
                         throw SessionError.imapError(status: response.status, text: response.text)
                     }
                 }
             }
+            await self.setIdleTag(nil)
             throw SessionError.timeout
         }
     }
@@ -2138,7 +2143,38 @@ public actor AsyncImapSession {
 
     public func stopIdle() async throws {
         try await ensureSelected()
-        _ = try await client.send(.idleDone)
+        guard let idleTag else {
+            throw SessionError.imapError(status: .bad, text: "IDLE not active.")
+        }
+        _ = try await withSessionTimeout {
+            try await self.client.sendLiteral(Array("DONE\r\n".utf8))
+            var emptyReads = 0
+            while emptyReads < 10 {
+                try Task.checkCancellation()
+                let messages = await self.client.nextMessages()
+                if messages.isEmpty {
+                    emptyReads += 1
+                    continue
+                }
+                emptyReads = 0
+                for message in messages {
+                    _ = await self.ingestSelectedState(from: message)
+                    if let response = message.response, case let .tagged(tag) = response.kind, tag == idleTag {
+                        await self.setIdleTag(nil)
+                        guard response.isOk else {
+                            throw SessionError.imapError(status: response.status, text: response.text)
+                        }
+                        return
+                    }
+                }
+            }
+            await self.setIdleTag(nil)
+            throw SessionError.timeout
+        }
+    }
+
+    private func setIdleTag(_ tag: String?) {
+        idleTag = tag
     }
 
     public func readQresyncEvents(validity: UInt32 = 0, maxEmptyReads: Int = 10) async throws -> [ImapQresyncEvent] {

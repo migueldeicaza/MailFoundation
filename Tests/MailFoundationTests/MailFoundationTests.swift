@@ -967,7 +967,7 @@ func imapIdleEventParsing() {
 @Test("IMAP idle done command")
 func imapIdleDoneCommand() {
     let command = ImapCommandKind.idleDone.command(tag: "A0001")
-    #expect(command.serialized == "A0001 DONE\r\n")
+    #expect(command.serialized == "DONE\r\n")
 }
 
 @Test("IMAP fetch body parser")

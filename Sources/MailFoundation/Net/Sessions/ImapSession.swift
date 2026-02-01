@@ -32,6 +32,7 @@ public final class ImapSession {
     private let client: ImapClient
     private let transport: Transport
     private let maxReads: Int
+    private var idleTag: String?
     public private(set) var selectedMailbox: String?
     public private(set) var selectedState = ImapSelectedState()
     public private(set) var namespaces: ImapNamespaceResponse?
@@ -66,6 +67,7 @@ public final class ImapSession {
         selectedState = ImapSelectedState()
         namespaces = nil
         specialUseMailboxes = []
+        idleTag = nil
     }
 
     public func capability() throws -> ImapResponse {
@@ -1553,12 +1555,28 @@ public final class ImapSession {
 
     public func startIdle() throws -> ImapResponse {
         try ensureSelected()
-        _ = client.send(.idle)
+        let command = client.send(.idle)
+        idleTag = command.tag
         try ensureWrite()
-        guard let response = client.waitForContinuation(maxReads: maxReads) else {
-            throw SessionError.timeout
+        var reads = 0
+        while reads < maxReads {
+            let messages = client.receiveWithLiterals()
+            if messages.isEmpty {
+                reads += 1
+                continue
+            }
+            for message in messages {
+                if let response = message.response, case .continuation = response.kind {
+                    return response
+                }
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
+                    idleTag = nil
+                    throw SessionError.imapError(status: response.status, text: response.text)
+                }
+            }
         }
-        return response
+        idleTag = nil
+        throw SessionError.timeout
     }
 
     public func readIdleEvents(maxReads: Int? = nil) -> [ImapIdleEvent] {
@@ -1587,8 +1605,31 @@ public final class ImapSession {
 
     public func stopIdle() throws {
         try ensureSelected()
-        _ = client.send(.idleDone)
+        guard let idleTag else {
+            throw SessionError.imapError(status: .bad, text: "IDLE not active.")
+        }
+        client.sendLiteral(Array("DONE\r\n".utf8))
         try ensureWrite()
+        var reads = 0
+        while reads < maxReads {
+            let messages = client.receiveWithLiterals()
+            if messages.isEmpty {
+                reads += 1
+                continue
+            }
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+                if let response = message.response, case let .tagged(tag) = response.kind, tag == idleTag {
+                    self.idleTag = nil
+                    guard response.isOk else {
+                        throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    return
+                }
+            }
+        }
+        self.idleTag = nil
+        throw SessionError.timeout
     }
 
     public func readQresyncEvents(validity: UInt32 = 0, maxReads: Int? = nil) -> [ImapQresyncEvent] {

@@ -55,8 +55,13 @@ struct ImapReplayStep {
         return ImapReplayStep(expectedCommand: nil, response: Array(text.utf8))
     }
 
-    static func command(_ command: String, fixture: String) -> ImapReplayStep {
-        let tag = extractTag(from: command)
+    static func serverPush(_ fixture: String) -> ImapReplayStep {
+        let text = loadReplayFixture(fixture)
+        return ImapReplayStep(expectedCommand: nil, response: Array(text.utf8))
+    }
+
+    static func command(_ command: String, fixture: String, responseTag: String? = nil) -> ImapReplayStep {
+        let tag = responseTag ?? extractTag(from: command)
         var text = loadReplayFixture(fixture)
         if let tag {
             text = text.replacingOccurrences(of: "A########", with: tag)

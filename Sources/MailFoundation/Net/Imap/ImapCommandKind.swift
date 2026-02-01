@@ -257,7 +257,7 @@ public enum ImapCommandKind: Sendable {
         case .idle:
             return ImapCommand(tag: tag, name: "IDLE")
         case .idleDone:
-            return ImapCommand(tag: tag, name: "DONE")
+            return ImapCommand(tag: "", name: "DONE")
         case .starttls:
             return ImapCommand(tag: tag, name: "STARTTLS")
         case let .notify(arguments):
