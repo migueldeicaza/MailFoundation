@@ -72,7 +72,7 @@ public struct ImapMailboxListResponse: Sendable, Equatable {
         }
         let upper = command.uppercased()
         let kind: ImapMailboxListKind
-        if upper == "LIST" {
+        if upper == "LIST" || upper == "XLIST" {
             kind = .list
         } else if upper == "LSUB" {
             kind = .lsub

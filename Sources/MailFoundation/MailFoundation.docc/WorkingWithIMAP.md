@@ -104,7 +104,7 @@ try store.unsubscribe(folder: "INBOX.Junk")
 
 ### Special Folders
 
-IMAP servers may advertise special-use folders:
+IMAP servers may advertise special-use folders. When supported, MailFoundation uses RFC 6154 `SPECIAL-USE` (or Gmail `XLIST`) during authentication to populate these attributes:
 
 ```swift
 let folders = try store.listFolders()

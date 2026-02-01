@@ -255,9 +255,15 @@ public actor AsyncImapSession {
         if await client.capabilities?.supports("NAMESPACE") == true {
             namespaces = try? await namespace()
         }
-        if let caps = await client.capabilities, caps.supports("SPECIAL-USE") || caps.supports("XLIST") {
-            if let list = try? await list(reference: "", mailbox: "*") {
-                specialUseMailboxes = list.filter { $0.specialUse != nil }
+        if let caps = await client.capabilities {
+            if caps.supports("SPECIAL-USE") {
+                if let list = try? await listSpecialUse(reference: "", mailbox: "*") {
+                    specialUseMailboxes = list.filter { $0.specialUse != nil }
+                }
+            } else if caps.supports("XLIST") {
+                if let list = try? await xlist(reference: "", mailbox: "*") {
+                    specialUseMailboxes = list.filter { $0.specialUse != nil }
+                }
             }
         }
     }
@@ -611,9 +617,16 @@ public actor AsyncImapSession {
         mailbox: String,
         maxEmptyReads: Int = 10
     ) async throws -> [ImapMailboxListResponse] {
+        try await listResponses(command: .list(reference, mailbox), maxEmptyReads: maxEmptyReads)
+    }
+
+    private func listResponses(
+        command: ImapCommandKind,
+        maxEmptyReads: Int = 10
+    ) async throws -> [ImapMailboxListResponse] {
         try await ensureAuthenticated()
         return try await withSessionTimeout {
-            let command = try await self.client.send(.list(reference, mailbox))
+            let command = try await self.client.send(command)
             var responses: [ImapMailboxListResponse] = []
             var emptyReads = 0
             while emptyReads < maxEmptyReads {
@@ -642,6 +655,22 @@ public actor AsyncImapSession {
             }
             throw SessionError.timeout
         }
+    }
+
+    private func listSpecialUse(reference: String, mailbox: String, maxEmptyReads: Int = 10) async throws -> [ImapMailbox] {
+        let responses = try await listResponses(
+            command: .listSpecialUse(reference, mailbox),
+            maxEmptyReads: maxEmptyReads
+        )
+        return responses.map { ImapMailbox(kind: $0.kind, name: $0.name, delimiter: $0.delimiter, attributes: $0.attributes) }
+    }
+
+    private func xlist(reference: String, mailbox: String, maxEmptyReads: Int = 10) async throws -> [ImapMailbox] {
+        let responses = try await listResponses(
+            command: .xlist(reference, mailbox),
+            maxEmptyReads: maxEmptyReads
+        )
+        return responses.map { ImapMailbox(kind: $0.kind, name: $0.name, delimiter: $0.delimiter, attributes: $0.attributes) }
     }
 
     public func lsub(reference: String, mailbox: String, maxEmptyReads: Int = 10) async throws -> [ImapMailbox] {

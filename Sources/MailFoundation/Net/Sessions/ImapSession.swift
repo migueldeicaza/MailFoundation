@@ -716,8 +716,12 @@ public final class ImapSession {
     }
 
     public func listResponses(reference: String, mailbox: String) throws -> [ImapMailboxListResponse] {
+        try listResponses(command: .list(reference, mailbox))
+    }
+
+    private func listResponses(command: ImapCommandKind) throws -> [ImapMailboxListResponse] {
         try ensureAuthenticated()
-        let command = client.send(.list(reference, mailbox))
+        let command = client.send(command)
         try ensureWrite()
         var responses: [ImapMailboxListResponse] = []
         var reads = 0
@@ -741,6 +745,16 @@ public final class ImapSession {
             }
         }
         throw SessionError.timeout
+    }
+
+    private func listSpecialUse(reference: String, mailbox: String) throws -> [ImapMailbox] {
+        let responses = try listResponses(command: .listSpecialUse(reference, mailbox))
+        return responses.map { ImapMailbox(kind: $0.kind, name: $0.name, delimiter: $0.delimiter, attributes: $0.attributes) }
+    }
+
+    private func xlist(reference: String, mailbox: String) throws -> [ImapMailbox] {
+        let responses = try listResponses(command: .xlist(reference, mailbox))
+        return responses.map { ImapMailbox(kind: $0.kind, name: $0.name, delimiter: $0.delimiter, attributes: $0.attributes) }
     }
 
     public func lsub(reference: String, mailbox: String) throws -> [ImapMailbox] {
@@ -1501,9 +1515,15 @@ public final class ImapSession {
         if client.capabilities?.supports("NAMESPACE") == true {
             namespaces = try? namespace()
         }
-        if let caps = client.capabilities, caps.supports("SPECIAL-USE") || caps.supports("XLIST") {
-            if let list = try? list(reference: "", mailbox: "*") {
-                specialUseMailboxes = list.filter { $0.specialUse != nil }
+        if let caps = client.capabilities {
+            if caps.supports("SPECIAL-USE") {
+                if let list = try? listSpecialUse(reference: "", mailbox: "*") {
+                    specialUseMailboxes = list.filter { $0.specialUse != nil }
+                }
+            } else if caps.supports("XLIST") {
+                if let list = try? xlist(reference: "", mailbox: "*") {
+                    specialUseMailboxes = list.filter { $0.specialUse != nil }
+                }
             }
         }
     }
