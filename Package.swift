@@ -39,7 +39,10 @@ let package = Package(
         ),
         .testTarget(
             name: "MailFoundationTests",
-            dependencies: ["MailFoundation"]
+            dependencies: ["MailFoundation"],
+            resources: [
+                .process("Fixtures")
+            ]
         ),
     ]
 )

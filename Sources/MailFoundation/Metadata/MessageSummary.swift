@@ -29,6 +29,7 @@
 //
 
 import Foundation
+import MimeFoundation
 
 /// A summary of a message containing metadata fetched from a mail server.
 ///
@@ -358,8 +359,12 @@ public struct MessageSummary: Sendable, Equatable {
                 }
             }
             if let previewPayload = previewPayload(from: bodyMap, bodyStructure: bodyStructure) {
-                let contentType = previewContentType(for: previewPayload, bodyStructure: bodyStructure, headers: headers)
-                previewText = decodePreviewText(previewPayload.data, contentType: contentType)
+                previewText = decodePreviewText(
+                    previewPayload.data,
+                    payload: previewPayload,
+                    bodyStructure: bodyStructure,
+                    headers: headers
+                )
                 if let previewText, !previewText.isEmpty {
                     items.insert(.previewText)
                 }
@@ -433,8 +438,12 @@ public struct MessageSummary: Sendable, Equatable {
                 }
             }
             if let previewPayload = previewPayload(from: bodyMap, bodyStructure: bodyStructure) {
-                let contentType = previewContentType(for: previewPayload, bodyStructure: bodyStructure, headers: headers)
-                previewText = decodePreviewText(previewPayload.data, contentType: contentType)
+                previewText = decodePreviewText(
+                    previewPayload.data,
+                    payload: previewPayload,
+                    bodyStructure: bodyStructure,
+                    headers: headers
+                )
                 if let previewText, !previewText.isEmpty {
                     items.insert(.previewText)
                 }
@@ -526,20 +535,6 @@ public struct MessageSummary: Sendable, Equatable {
         }
     }
 
-    private static func previewContentType(
-        for payload: ImapFetchBodySectionPayload,
-        bodyStructure: ImapBodyStructure?,
-        headers: [String: String]
-    ) -> String? {
-        if let section = payload.section, let bodyStructure {
-            return bodyStructure.resolve(section: section)?.contentType
-        }
-        if let headerValue = headers["CONTENT-TYPE"] {
-            return headerValue
-        }
-        return nil
-    }
-
     private static func stripHeaders(_ bytes: [UInt8]) -> [UInt8] {
         if bytes.count < 4 { return bytes }
         for index in 0..<(bytes.count - 3) {
@@ -553,53 +548,155 @@ public struct MessageSummary: Sendable, Equatable {
         return bytes
     }
 
-    private static func decodePreviewText(_ bytes: [UInt8], contentType: String?) -> String? {
-        let data = Data(bytes)
-        let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
-        guard let text else { return nil }
-
-        let lowered = contentType?.lowercased() ?? ""
-        let normalized = lowered.contains("text/html") ? htmlToText(text) : text
-        let trimmed = normalized.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if trimmed.count <= 512 { return trimmed }
-        return String(trimmed.prefix(512))
+    private static func decodePreviewText(
+        _ bytes: [UInt8],
+        payload: ImapFetchBodySectionPayload,
+        bodyStructure: ImapBodyStructure?,
+        headers: [String: String]
+    ) -> String? {
+        let context = previewContext(for: payload, bodyStructure: bodyStructure, headers: headers)
+        let decodedBytes = decodeContentBytes(bytes, encoding: context.transferEncoding)
+        guard let text = decodeText(decodedBytes, encoding: context.charsetEncoding) else { return nil }
+        let previewer: TextPreviewer = context.format == .html ? HtmlTextPreviewer() : PlainTextPreviewer()
+        let preview = previewer.getPreviewText(text)
+        return preview.isEmpty ? nil : preview
     }
 
-    private static func htmlToText(_ html: String) -> String {
-        let withoutScript = html.replacingOccurrences(
-            of: "<script[\\s\\S]*?</script>",
-            with: " ",
-            options: [.regularExpression, .caseInsensitive]
-        )
-        let withoutStyle = withoutScript.replacingOccurrences(
-            of: "<style[\\s\\S]*?</style>",
-            with: " ",
-            options: [.regularExpression, .caseInsensitive]
-        )
-        let withoutTags = withoutStyle.replacingOccurrences(
-            of: "<[^>]+>",
-            with: " ",
-            options: [.regularExpression, .caseInsensitive]
-        )
-        return decodeHtmlEntities(withoutTags)
+    private struct PreviewContext {
+        let format: TextFormat
+        let charsetEncoding: String.Encoding?
+        let transferEncoding: ContentEncoding
     }
 
-    private static func decodeHtmlEntities(_ text: String) -> String {
-        var result = text
-        let replacements: [String: String] = [
-            "&nbsp;": " ",
-            "&amp;": "&",
-            "&lt;": "<",
-            "&gt;": ">",
-            "&quot;": "\"",
-            "&#39;": "'"
-        ]
-        for (entity, value) in replacements {
-            result = result.replacingOccurrences(of: entity, with: value)
+    private static func previewContext(
+        for payload: ImapFetchBodySectionPayload,
+        bodyStructure: ImapBodyStructure?,
+        headers: [String: String]
+    ) -> PreviewContext {
+        var format: TextFormat = .plain
+        var charset: String?
+        var transferEncoding: ContentEncoding = .default
+
+        if let section = payload.section,
+           let bodyStructure,
+           let resolution = bodyStructure.resolve(section: section),
+           case let .single(part) = resolution.scope.node {
+            charset = part.parameters["CHARSET"]
+            if part.type.uppercased() == "TEXT", part.subtype.uppercased() == "HTML" {
+                format = .html
+            }
+            if let encoding = part.encoding {
+                transferEncoding = parseContentEncoding(encoding)
+            }
         }
-        return result
+
+        var parsedContentType: ContentType?
+        if let headerValue = headerValue(headers, name: "Content-Type"),
+           let parsed = try? ContentType(parsing: headerValue) {
+            parsedContentType = parsed
+            if charset == nil {
+                charset = parsed.charset
+            }
+            if format == .plain, parsed.isMimeType("text", "html") {
+                format = .html
+            }
+        }
+
+        if transferEncoding == .default,
+           let encodingHeader = headerValue(headers, name: "Content-Transfer-Encoding") {
+            transferEncoding = parseContentEncoding(encodingHeader)
+        }
+
+        let charsetEncoding = charset.flatMap { CharsetUtils.getEncoding($0) }
+            ?? parsedContentType?.charsetEncoding
+
+        return PreviewContext(format: format, charsetEncoding: charsetEncoding, transferEncoding: transferEncoding)
+    }
+
+    private static func parseContentEncoding(_ value: String?) -> ContentEncoding {
+        guard let value else { return .default }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "7bit", "7-bit":
+            return .sevenBit
+        case "8bit", "8-bit":
+            return .eightBit
+        case "binary":
+            return .binary
+        case "base64":
+            return .base64
+        case "quoted-printable", "quotedprintable":
+            return .quotedPrintable
+        case "uuencode", "x-uuencode", "uuencoded", "x-uue":
+            return .uuEncode
+        default:
+            return .default
+        }
+    }
+
+    private static func decodeContentBytes(_ bytes: [UInt8], encoding: ContentEncoding) -> [UInt8] {
+        switch encoding {
+        case .base64, .quotedPrintable, .uuEncode:
+            let source = MemoryStream(bytes, writable: false)
+            guard let filtered = try? FilteredStream(source) else { return bytes }
+            let filter = DecoderFilter.create(encoding)
+            _ = try? filtered.add(filter)
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            var output: [UInt8] = []
+            while true {
+                let read = (try? filtered.read(&buffer, offset: 0, count: buffer.count)) ?? 0
+                if read == 0 { break }
+                output.append(contentsOf: buffer[0..<read])
+            }
+            return output
+        default:
+            return bytes
+        }
+    }
+
+    private static func decodeText(_ bytes: [UInt8], encoding: String.Encoding?) -> String? {
+        let data = Data(bytes)
+        if let encoding {
+            if let text = decodeData(data, encoding: encoding) {
+                return text
+            }
+            return decodeData(data, encoding: .isoLatin1)
+        }
+        if let text = decodeData(data, encoding: .utf8) {
+            return text
+        }
+        return decodeData(data, encoding: .isoLatin1)
+    }
+
+    private static func decodeData(_ data: Data, encoding: String.Encoding) -> String? {
+        if let text = String(data: data, encoding: encoding) {
+            return text
+        }
+        if data.isEmpty {
+            return nil
+        }
+        var trimmed = data
+        for _ in 0..<4 {
+            trimmed.removeLast()
+            if let text = String(data: trimmed, encoding: encoding) {
+                return text
+            }
+            if trimmed.isEmpty {
+                break
+            }
+        }
+        return nil
+    }
+
+    private static func headerValue(_ headers: [String: String], name: String) -> String? {
+        if let value = headers[name] {
+            return value
+        }
+        let upper = name.uppercased()
+        if let value = headers[upper] {
+            return value
+        }
+        return headers.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
     }
 }
 

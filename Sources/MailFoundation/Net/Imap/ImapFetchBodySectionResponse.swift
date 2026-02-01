@@ -113,6 +113,7 @@ public struct ImapFetchBodySectionResponse: Sendable, Equatable {
                 }
 
                 var partial: ImapFetchPartial?
+                var partialStart: Int?
                 if let partialToken = reader.peekToken(),
                    partialToken.type == .atom,
                    let partialValue = partialToken.stringValue,
@@ -120,12 +121,18 @@ public struct ImapFetchBodySectionResponse: Sendable, Equatable {
                    partialValue.hasSuffix(">") {
                     _ = reader.readToken()
                     partial = parsePartial(fromAtom: partialValue)
+                    if partial == nil {
+                        partialStart = parsePartialStart(fromAtom: partialValue)
+                    }
                 }
 
                 guard let dataToken = reader.readToken() else { continue }
                 switch dataToken.type {
                 case .literal:
                     if let data = reader.literalBytes(for: dataToken) {
+                        if partial == nil, let start = partialStart, data.isEmpty == false {
+                            partial = ImapFetchPartial(start: start, length: data.count)
+                        }
                         results.append(ImapFetchBodySectionResponse(
                             sequence: sequence,
                             section: section,
@@ -137,6 +144,9 @@ public struct ImapFetchBodySectionResponse: Sendable, Equatable {
                 case .qString, .atom, .flag:
                     if let value = dataToken.stringValue {
                         let data = Array(value.utf8)
+                        if partial == nil, let start = partialStart, data.isEmpty == false {
+                            partial = ImapFetchPartial(start: start, length: data.count)
+                        }
                         results.append(ImapFetchBodySectionResponse(
                             sequence: sequence,
                             section: section,
@@ -180,5 +190,12 @@ public struct ImapFetchBodySectionResponse: Sendable, Equatable {
             return nil
         }
         return ImapFetchPartial(start: start, length: length)
+    }
+
+    private static func parsePartialStart(fromAtom atom: String) -> Int? {
+        guard atom.first == "<", atom.last == ">" else { return nil }
+        let inner = atom.dropFirst().dropLast()
+        guard inner.contains(".") == false, let start = Int(inner) else { return nil }
+        return start
     }
 }
