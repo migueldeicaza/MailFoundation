@@ -79,6 +79,23 @@ public struct ImapListStatusResponse: Sendable, Equatable {
     private static func readStatusItems(reader: inout ImapLineTokenReader) -> [String: Int]? {
         guard let token = reader.readToken(), token.type == .openParen else { return nil }
         var items: [String: Int] = [:]
+
+        if let next = reader.peekToken(),
+           next.type == .atom,
+           next.stringValue?.uppercased() == "STATUS"
+        {
+            _ = reader.readToken()
+            guard let inner = reader.readToken(), inner.type == .openParen else { return nil }
+            readStatusPairs(reader: &reader, items: &items)
+            discardUntilClosingParen(reader: &reader)
+            return items
+        }
+
+        readStatusPairs(reader: &reader, items: &items)
+        return items
+    }
+
+    private static func readStatusPairs(reader: inout ImapLineTokenReader, items: inout [String: Int]) {
         while let next = reader.peekToken() {
             if next.type == .closeParen {
                 _ = reader.readToken()
@@ -86,12 +103,26 @@ public struct ImapListStatusResponse: Sendable, Equatable {
             }
             guard let keyToken = reader.readToken(),
                   let key = readStringValue(token: keyToken, reader: &reader, allowNil: false) else {
-                return nil
+                _ = reader.readToken()
+                continue
             }
             let value = reader.readNumber() ?? 0
             items[key.uppercased()] = value
         }
-        return items
+    }
+
+    private static func discardUntilClosingParen(reader: inout ImapLineTokenReader) {
+        var depth = 1
+        while let token = reader.readToken() {
+            if token.type == .openParen {
+                depth += 1
+            } else if token.type == .closeParen {
+                depth -= 1
+                if depth == 0 {
+                    break
+                }
+            }
+        }
     }
 
     private static func readStringValue(

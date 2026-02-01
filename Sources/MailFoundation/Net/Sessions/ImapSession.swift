@@ -790,12 +790,27 @@ public final class ImapSession {
         throw SessionError.timeout
     }
 
-    public func listStatus(reference: String, mailbox: String) throws -> [ImapListStatusResponse] {
+    public func listStatus(
+        reference: String,
+        mailbox: String,
+        items: [String] = ["MESSAGES", "UNSEEN", "UIDNEXT", "UIDVALIDITY"]
+    ) throws -> [ImapListStatusResponse] {
         try ensureAuthenticated()
-        let command = client.send(.list(reference, mailbox))
+        let normalizedItems = items.isEmpty ? ["MESSAGES"] : items
+        let command = client.send(.listStatus(reference, mailbox, items: normalizedItems))
         try ensureWrite()
         var responses: [ImapListStatusResponse] = []
+        var mailboxMap: [String: ImapMailbox] = [:]
+        var statusMap: [String: [String: Int]] = [:]
+        var seen: Set<String> = []
         var reads = 0
+
+        func appendStatus(name: String, mailbox: ImapMailbox, items: [String: Int]) {
+            guard !seen.contains(name) else { return }
+            responses.append(ImapListStatusResponse(mailbox: mailbox, statusItems: items))
+            seen.insert(name)
+        }
+
         while reads < maxReads {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
@@ -804,12 +819,31 @@ public final class ImapSession {
             }
             for message in messages {
                 _ = ingestSelectedState(from: message)
+                if let list = ImapMailboxListResponse.parse(message) {
+                    let mailbox = list.toMailbox()
+                    mailboxMap[mailbox.name] = mailbox
+                    if let items = statusMap[mailbox.name] {
+                        appendStatus(name: mailbox.name, mailbox: mailbox, items: items)
+                    }
+                }
                 if let listStatus = ImapListStatusResponse.parse(message) {
                     responses.append(listStatus)
+                    seen.insert(listStatus.mailbox.name)
+                }
+                if let status = ImapStatusResponse.parse(message) {
+                    statusMap[status.mailbox] = status.items
+                    if let mailbox = mailboxMap[status.mailbox] {
+                        appendStatus(name: status.mailbox, mailbox: mailbox, items: status.items)
+                    }
                 }
                 if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
                     guard response.isOk else {
                         throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+                    for (name, items) in statusMap {
+                        if let mailbox = mailboxMap[name] {
+                            appendStatus(name: name, mailbox: mailbox, items: items)
+                        }
                     }
                     return responses
                 }

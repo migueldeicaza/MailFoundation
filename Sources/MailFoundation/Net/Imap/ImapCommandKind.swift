@@ -88,6 +88,7 @@ public enum ImapCommandKind: Sendable {
     case unsubscribe(String)
     case list(String, String)
     case listSpecialUse(String, String)
+    case listStatus(String, String, items: [String])
     case lsub(String, String)
     case xlist(String, String)
     case status(String, items: [String])
@@ -159,6 +160,13 @@ public enum ImapCommandKind: Sendable {
                 tag: tag,
                 name: "LIST",
                 arguments: "(SPECIAL-USE) \(imapAString(reference)) \(imapAString(mailbox))"
+            )
+        case let .listStatus(reference, mailbox, items):
+            let itemList = items.joined(separator: " ")
+            return ImapCommand(
+                tag: tag,
+                name: "LIST",
+                arguments: "\(imapAString(reference)) \(imapAString(mailbox)) RETURN (STATUS (\(itemList)))"
             )
         case let .lsub(reference, mailbox):
             return ImapCommand(tag: tag, name: "LSUB", arguments: "\(imapAString(reference)) \(imapAString(mailbox))")

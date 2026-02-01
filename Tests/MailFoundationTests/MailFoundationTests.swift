@@ -223,6 +223,12 @@ func imapListStatusParsing() {
     #expect(response?.mailbox.attributes.contains(.hasNoChildren) == true)
     #expect(response?.statusItems["MESSAGES"] == 2)
     #expect(response?.statusItems["UIDNEXT"] == 5)
+
+    let extended = "* LIST (\\HasNoChildren) \"/\" \"INBOX\" (STATUS (MESSAGES 2 UIDNEXT 5))"
+    let extendedResponse = ImapListStatusResponse.parse(extended)
+    #expect(extendedResponse?.mailbox.name == "INBOX")
+    #expect(extendedResponse?.statusItems["MESSAGES"] == 2)
+    #expect(extendedResponse?.statusItems["UIDNEXT"] == 5)
 }
 
 @Test("IMAP list parsing with literal mailbox name")
@@ -1548,6 +1554,7 @@ func imapCommandSerializationExtras() {
     #expect(ImapCommandKind.create("INBOX").command(tag: "A1").serialized == "A1 CREATE INBOX\r\n")
     #expect(ImapCommandKind.list("", "*").command(tag: "A1").serialized == "A1 LIST \"\" \"*\"\r\n")
     #expect(ImapCommandKind.listSpecialUse("", "*").command(tag: "A1").serialized == "A1 LIST (SPECIAL-USE) \"\" \"*\"\r\n")
+    #expect(ImapCommandKind.listStatus("", "*", items: ["MESSAGES", "UNSEEN"]).command(tag: "A1").serialized == "A1 LIST \"\" \"*\" RETURN (STATUS (MESSAGES UNSEEN))\r\n")
     #expect(ImapCommandKind.xlist("", "*").command(tag: "A1").serialized == "A1 XLIST \"\" \"*\"\r\n")
     #expect(ImapCommandKind.status("INBOX", items: ["MESSAGES", "UIDNEXT"]).command(tag: "A1").serialized == "A1 STATUS INBOX (MESSAGES UIDNEXT)\r\n")
     #expect(ImapCommandKind.uidFetch("1:*", "(FLAGS)").command(tag: "A1").serialized == "A1 UID FETCH 1:* (FLAGS)\r\n")
