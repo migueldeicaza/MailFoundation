@@ -108,4 +108,4 @@ await transport.disconnect()
 
 ## Documentation
 
-Full API documentation is available at [https://migueldeicaza.github.io/MailFoundation/](https://migueldeicaza.github.io/MailFoundation/)
+Full API documentation is available at [https://migueldeicaza.github.io/MailFoundation/](https://migueldeicaza.github.io/MailFoundation/).
