@@ -27,6 +27,11 @@ import Testing
 @testable import MailFoundation
 import MimeFoundation
 
+private func decodeImapLiteralMessages(_ text: String) -> [ImapLiteralMessage] {
+    var decoder = ImapLiteralDecoder()
+    return decoder.append(Array(text.utf8))
+}
+
 @Test("UniqueId basics")
 func uniqueIdBasics() {
     let uid = UniqueId(id: 42)
@@ -205,6 +210,125 @@ func imapListStatusParsing() {
     #expect(response?.mailbox.attributes.contains(.hasNoChildren) == true)
     #expect(response?.statusItems["MESSAGES"] == 2)
     #expect(response?.statusItems["UIDNEXT"] == 5)
+}
+
+@Test("IMAP list parsing with literal mailbox name")
+func imapListParsingWithLiteralMailbox() {
+    let fixture = [
+        "* LIST () \"/\" INBOX",
+        "* LIST (\\HasNoChildren) \"/\" {19}",
+        "Literal Folder Name",
+        "A######## OK LIST Completed",
+        ""
+    ].joined(separator: "\r\n")
+    let messages = decodeImapLiteralMessages(fixture)
+    #expect(messages.count == 3)
+    let list = ImapMailboxListResponse.parse(messages[1])
+    #expect(list?.name == "Literal Folder Name")
+    #expect(list?.decodedName == "Literal Folder Name")
+    #expect(list?.toMailbox().hasAttribute(.hasNoChildren) == true)
+}
+
+@Test("IMAP list-status parsing with literal mailbox name")
+func imapListStatusParsingWithLiteralMailbox() {
+    let line = "* LIST (\\HasNoChildren) \"/\" {5} (MESSAGES 2 UIDNEXT 5)"
+    let message = ImapLiteralMessage(
+        line: line,
+        response: ImapResponse.parse(line),
+        literal: Array("INBOX".utf8)
+    )
+    let response = ImapListStatusResponse.parse(message)
+    #expect(response?.mailbox.name == "INBOX")
+    #expect(response?.statusItems["MESSAGES"] == 2)
+    #expect(response?.statusItems["UIDNEXT"] == 5)
+}
+
+@Test("IMAP status parsing with literal mailbox name")
+func imapStatusParsingWithLiteralMailbox() {
+    let fixture = [
+        "* STATUS {19}",
+        "Literal Folder Name (MESSAGES 60)",
+        "A######## OK STATUS Completed",
+        ""
+    ].joined(separator: "\r\n")
+    let messages = decodeImapLiteralMessages(fixture)
+    #expect(messages.count == 2)
+    let response = ImapStatusResponse.parse(messages[0])
+    #expect(response?.mailbox == "Literal Folder Name")
+    #expect(response?.items["MESSAGES"] == 60)
+}
+
+@Test("IMAP metadata parsing with literal values")
+func imapMetadataParsingWithLiteralValues() {
+    let line = "* METADATA \"INBOX\" (/private/comment {5} /private/foo {3})"
+    let message = ImapLiteralMessage(
+        line: line,
+        response: ImapResponse.parse(line),
+        literal: nil,
+        literals: [Array("Hello".utf8), Array("bar".utf8)]
+    )
+    let response = ImapMetadataResponse.parse(message)
+    #expect(response?.mailbox == "INBOX")
+    #expect(response?.entries.count == 2)
+    #expect(response?.entries.first?.key == "/private/comment")
+    #expect(response?.entries.first?.value == "Hello")
+    #expect(response?.entries.last?.key == "/private/foo")
+    #expect(response?.entries.last?.value == "bar")
+}
+
+@Test("IMAP metadata parsing from MailKit fixture")
+func imapMetadataParsingFromMailKitFixture() {
+    let fixture = [
+        "* METADATA \"INBOX\" (/private/comment \"this is a private comment\" /shared/comment \"this is a shared comment\")",
+        "A######## OK GETMETADATA complete",
+        ""
+    ].joined(separator: "\r\n")
+    let messages = decodeImapLiteralMessages(fixture)
+    #expect(messages.count == 2)
+    let response = ImapMetadataResponse.parse(messages[0])
+    #expect(response?.mailbox == "INBOX")
+    #expect(response?.entries.count == 2)
+    #expect(response?.entries.first?.key == "/private/comment")
+    #expect(response?.entries.first?.value == "this is a private comment")
+    #expect(response?.entries.last?.key == "/shared/comment")
+    #expect(response?.entries.last?.value == "this is a shared comment")
+}
+
+@Test("IMAP annotation parsing with literal values")
+func imapAnnotationParsingWithLiteralValues() {
+    let line = "* ANNOTATION \"INBOX\" \"/comment\" (value.shared {5} value.priv {3})"
+    let message = ImapLiteralMessage(
+        line: line,
+        response: ImapResponse.parse(line),
+        literal: nil,
+        literals: [Array("Hello".utf8), Array("bar".utf8)]
+    )
+    let response = ImapAnnotationResponse.parse(message)
+    #expect(response?.mailbox == "INBOX")
+    #expect(response?.entry.entry == "/comment")
+    #expect(response?.entry.attributes.count == 2)
+    #expect(response?.entry.attributes.first?.name == "value.shared")
+    #expect(response?.entry.attributes.first?.value == "Hello")
+    #expect(response?.entry.attributes.last?.name == "value.priv")
+    #expect(response?.entry.attributes.last?.value == "bar")
+}
+
+@Test("IMAP annotation parsing from MailKit example")
+func imapAnnotationParsingFromMailKitExample() {
+    let line = "* ANNOTATION \"INBOX\" /comment (value.priv \"My comment\" value.shared NIL)"
+    let message = ImapLiteralMessage(
+        line: line,
+        response: ImapResponse.parse(line),
+        literal: nil
+    )
+    let response = ImapAnnotationResponse.parse(message)
+    #expect(response?.mailbox == "INBOX")
+    #expect(response?.entry.entry == "/comment")
+    #expect(response?.entry.attributes.count == 2)
+    #expect(response?.entry.attributes.first?.name == "value.priv")
+    #expect(response?.entry.attributes.first?.value == "My comment")
+    #expect(response?.entry.attributes.last?.name == "value.shared")
+    #expect(response?.entry.attributes.last?.value == nil)
 }
 
 @Test("IMAP MODSEQ/VANISHED parsing")
@@ -429,19 +553,56 @@ func imapFetchBodySectionResponseParsing() {
 
 @Test("IMAP fetch body section response parsing supports multiple literals")
 func imapFetchBodySectionResponseMultipleLiterals() {
-    let line = "* 1 FETCH (BODY[HEADER] {5} BODY[TEXT] {3})"
-    let message = ImapLiteralMessage(
-        line: line,
-        response: ImapResponse.parse(line),
-        literal: nil,
-        literals: [Array("Hello".utf8), Array("abc".utf8)]
-    )
-    let parsed = ImapFetchBodySectionResponse.parseAll(message)
+    let fixture = [
+        "* 2 FETCH (UID 2 BODY[1.MIME] {43}",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        " BODY[1] {27}",
+        "This is the message body.",
+        ")",
+        "A######## OK Fetch completed (0.002 + 0.000 secs).",
+        ""
+    ].joined(separator: "\r\n")
+    let messages = decodeImapLiteralMessages(fixture)
+    #expect(messages.count == 2)
+    let parsed = ImapFetchBodySectionResponse.parseAll(messages[0])
     #expect(parsed.count == 2)
-    let header = parsed.first { $0.section?.subsection == .header }
-    #expect(header?.data == Array("Hello".utf8))
-    let text = parsed.first { $0.section?.subsection == .text }
-    #expect(text?.data == Array("abc".utf8))
+    let mime = parsed.first { $0.section?.subsection == .mime }
+    #expect(mime?.section?.part == [1])
+    #expect(mime?.data.starts(with: Array("Content-Type:".utf8)) == true)
+    let body = parsed.first { $0.section?.subsection == nil }
+    #expect(body?.section?.part == [1])
+    #expect(body?.data == Array("This is the message body.\r\n".utf8))
+}
+
+@Test("IMAP fetch attributes skip unknown tokens with literals")
+func imapFetchAttributesSkipUnknownWithLiterals() {
+    let fixture = [
+        "* 1 FETCH (UID 1 FLAGS (\\Answered \\Seen \\Draft) MODSEQ (4) XAOL.SPAM.REASON 0 XAOL-MSGID 1 XAOL-PAREN-LIST (XAOL-TOKEN-PARAM1 XAOL-TOKEN-VALUE1 XAOL-TOKEN-PARAM2 {17}",
+        "XAOL-TOKEN-VALUE2 XAOL-TOKEN-PARAM3 (XAOL-SUBTOKEN-PARAM XAOL-SUBTOKEN-VALUE)))",
+        "* 2 FETCH (UID 2 FLAGS (\\Answered \\Seen \\Draft) MODSEQ (4))",
+        "* 3 FETCH (UID 3 FLAGS (\\Answered \\Seen \\Draft) MODSEQ (4))",
+        "* 4 FETCH (UID 4 FLAGS (\\Seen \\Draft) MODSEQ (3))",
+        "* 5 FETCH (UID 5 FLAGS (\\Seen \\Draft) MODSEQ (3))",
+        "* 6 FETCH (UID 6 FLAGS (\\Seen \\Draft) MODSEQ (3))",
+        "* 7 FETCH (UID 7 FLAGS (\\Seen \\Draft) MODSEQ (3))",
+        "A######## OK Fetch completed (0.001 + 0.000 secs).",
+        ""
+    ].joined(separator: "\r\n")
+    let messages = decodeImapLiteralMessages(fixture)
+    #expect(messages.count == 8)
+
+    guard let message = messages.first(where: { $0.line.contains("XAOL-PAREN-LIST") }) else {
+        #expect(Bool(false))
+        return
+    }
+    guard let attrs = ImapFetchAttributes.parse(message) else {
+        #expect(Bool(false))
+        return
+    }
+    #expect(attrs.uid == 1)
+    #expect(attrs.modSeq == 4)
+    #expect(attrs.flags == ["\\Answered", "\\Seen", "\\Draft"])
 }
 
 @Test("IMAP envelope cache")
@@ -695,6 +856,60 @@ func imapFetchEnvelopeLiterals() {
     let envelope = attrs.parsedImapEnvelope()
     #expect(envelope?.subject == "IMAP4rev1 WG mtg summary and minutes")
     #expect(envelope?.messageId == "B27397-0100000@cac.washington.edu")
+}
+
+@Test("IMAP FETCH materializes literals in envelope and bodystructure")
+func imapFetchMaterializesEnvelopeAndBodyStructureLiterals() {
+    let response = "* 1 FETCH (ENVELOPE (\"Wed, 01 Jan 2020 00:00:00 +0000\" {5}\r\nHello NIL NIL NIL NIL NIL NIL NIL NIL) BODYSTRUCTURE (\"TEXT\" \"PLAIN\" (\"CHARSET\" {5}\r\nUTF-8) NIL NIL \"7BIT\" 12 1))\r\n"
+
+    var decoder = ImapLiteralDecoder()
+    let messages = decoder.append(Array(response.utf8))
+    #expect(messages.count == 1)
+
+    guard let attrs = ImapFetchAttributes.parse(messages[0]) else {
+        #expect(Bool(false))
+        return
+    }
+    let envelope = attrs.parsedImapEnvelope()
+    #expect(envelope?.subject == "Hello")
+    let structure = attrs.parsedBodyStructure()
+    if case let .single(part)? = structure {
+        #expect(part.parameters["CHARSET"] == "UTF-8")
+    } else {
+        #expect(Bool(false))
+    }
+}
+
+@Test("IMAP literal decoder buffers partial literal data")
+func imapLiteralDecoderBuffersPartialLiteral() {
+    var decoder = ImapLiteralDecoder()
+    let part1 = Array("* 1 FETCH (BODY[] {4}\r\nAB".utf8)
+    let messages1 = decoder.append(part1)
+    #expect(messages1.isEmpty == true)
+    #expect(decoder.hasPendingData == true)
+
+    let part2 = Array("CD)\r\n".utf8)
+    let messages2 = decoder.append(part2)
+    #expect(messages2.count == 1)
+    #expect(messages2.first?.literal == Array("ABCD".utf8))
+}
+
+@Test("IMAP literal decoder uses byte length for UTF-8")
+func imapLiteralDecoderUsesByteLengthForUtf8() {
+    var decoder = ImapLiteralDecoder()
+    var bytes = Array("* LIST () \"/\" {2}\r\n".utf8)
+    bytes.append(contentsOf: [0xC3, 0xA4]) // "ä" in UTF-8
+    bytes.append(contentsOf: Array("\r\n".utf8))
+
+    let messages = decoder.append(bytes)
+    #expect(messages.count == 1)
+    guard let message = messages.first else {
+        #expect(Bool(false))
+        return
+    }
+    let response = ImapMailboxListResponse.parse(message)
+    #expect(response?.name == "ä")
+    #expect(response?.decodedName == "ä")
 }
 
 @Test("Envelope apply headers")
