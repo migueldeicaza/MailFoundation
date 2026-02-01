@@ -108,12 +108,4 @@ await transport.disconnect()
 
 ## Documentation
 
-DocC documentation lives under `Sources/MailFoundation/MailFoundation.docc`.
-You can generate it locally with:
-
-```bash
-swift package generate-documentation \
-  --target MailFoundation \
-  --output-path ./docs \
-  --transform-for-static-hosting
-```
+Full API documentation is available at [https://migueldeicaza.github.io/MailFoundation/](https://migueldeicaza.github.io/MailFoundation/).
