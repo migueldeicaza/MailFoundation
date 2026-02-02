@@ -26,9 +26,31 @@ import Foundation
 import Testing
 @testable import MailFoundation
 
+extension ProtocolLogger: @unchecked Sendable {}
+
 private func memoryStreamOutput(_ stream: OutputStream) -> String {
     let data = stream.property(forKey: .dataWrittenToMemoryStreamKey) as? Data ?? Data()
     return String(decoding: data, as: UTF8.self)
+}
+
+private func extractTag(from command: String) -> String? {
+    let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let firstSpace = trimmed.firstIndex(of: " ") else {
+        return nil
+    }
+    return String(trimmed[..<firstSpace])
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+private func awaitSentCommand(transport: AsyncStreamTransport, contains token: String, attempts: Int = 50) async -> String? {
+    for _ in 0..<attempts {
+        let sent = await transport.sentSnapshot()
+        if let line = sent.compactMap({ String(decoding: $0, as: UTF8.self) }).first(where: { $0.contains(token) }) {
+            return line
+        }
+        try? await Task.sleep(nanoseconds: 1_000_000)
+    }
+    return nil
 }
 
 @Test("IMAP client IDLE not supported (replay)")
@@ -167,4 +189,104 @@ func asyncImapClientNotifyNotSupported() async throws {
     #expect(response?.status == .bad)
 
     await client.stop()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client protocol logger redacts on IDLE failure")
+func asyncImapClientProtocolLoggerRedactsOnIdleFailure() async throws {
+    let stream = OutputStream.toMemory()
+    let logger = ProtocolLogger(stream: stream, leaveOpen: true)
+    logger.logTimestamps = false
+    logger.redactSecrets = true
+    logger.clientPrefix = "C: "
+    logger.serverPrefix = "S: "
+
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+    await client.setProtocolLogger(logger)
+
+    let loginTask = Task { try await client.login(user: "bob", password: "secret") }
+    guard let loginLine = await awaitSentCommand(transport: transport, contains: "LOGIN") else {
+        #expect(Bool(false), "Missing LOGIN command")
+        loginTask.cancel()
+        await client.stop()
+        stream.close()
+        return
+    }
+
+    guard let loginTag = extractTag(from: loginLine) else {
+        #expect(Bool(false), "Missing LOGIN tag")
+        loginTask.cancel()
+        await client.stop()
+        stream.close()
+        return
+    }
+    await transport.yieldIncoming(Array("\(loginTag) OK [CAPABILITY IMAP4rev1] Logged in\r\n".utf8))
+    let loginResponse = try await loginTask.value
+    #expect(loginResponse?.status == .ok)
+
+    let idleCommand = try await client.send(.idle)
+    await transport.yieldIncoming(Array("\(idleCommand.tag) BAD IDLE not supported.\r\n".utf8))
+    let idleResponse = await client.waitForTagged(idleCommand.tag)
+    #expect(idleResponse?.status == .bad)
+
+    await client.stop()
+    stream.close()
+
+    let output = memoryStreamOutput(stream)
+    #expect(output.contains("C: \(loginTag) LOGIN ******** ********"))
+    #expect(output.contains("S: \(idleCommand.tag) BAD IDLE not supported."))
+    #expect(!output.contains("bob"))
+    #expect(!output.contains("secret"))
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client protocol logger redacts on NOTIFY failure")
+func asyncImapClientProtocolLoggerRedactsOnNotifyFailure() async throws {
+    let stream = OutputStream.toMemory()
+    let logger = ProtocolLogger(stream: stream, leaveOpen: true)
+    logger.logTimestamps = false
+    logger.redactSecrets = true
+    logger.clientPrefix = "C: "
+    logger.serverPrefix = "S: "
+
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+    await client.setProtocolLogger(logger)
+
+    let loginTask = Task { try await client.login(user: "bob", password: "secret") }
+    guard let loginLine = await awaitSentCommand(transport: transport, contains: "LOGIN") else {
+        #expect(Bool(false), "Missing LOGIN command")
+        loginTask.cancel()
+        await client.stop()
+        stream.close()
+        return
+    }
+
+    guard let loginTag = extractTag(from: loginLine) else {
+        #expect(Bool(false), "Missing LOGIN tag")
+        loginTask.cancel()
+        await client.stop()
+        stream.close()
+        return
+    }
+    await transport.yieldIncoming(Array("\(loginTag) OK [CAPABILITY IMAP4rev1] Logged in\r\n".utf8))
+    let loginResponse = try await loginTask.value
+    #expect(loginResponse?.status == .ok)
+
+    let notifyCommand = try await client.send(.notify("NONE"))
+    await transport.yieldIncoming(Array("\(notifyCommand.tag) BAD NOTIFY not supported.\r\n".utf8))
+    let notifyResponse = await client.waitForTagged(notifyCommand.tag)
+    #expect(notifyResponse?.status == .bad)
+
+    await client.stop()
+    stream.close()
+
+    let output = memoryStreamOutput(stream)
+    #expect(output.contains("C: \(loginTag) LOGIN ******** ********"))
+    #expect(output.contains("S: \(notifyCommand.tag) BAD NOTIFY not supported."))
+    #expect(!output.contains("bob"))
+    #expect(!output.contains("secret"))
 }
