@@ -7,11 +7,6 @@ struct Socks5ProxyTests {
     @Test("SOCKS5 proxy client sends greeting and connect request")
     func socks5Connect() async throws {
         let transport = AsyncStreamTransport()
-        let settings = ProxySettings(
-            host: "proxy.example.com",
-            port: 1080,
-            type: .socks5
-        )
         let client = AsyncSocks5ProxyClient(transport: transport)
         
         // Ensure transport is started
