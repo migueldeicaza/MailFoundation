@@ -24,7 +24,7 @@ enum TlsChannelBindingHelper {
         let trust = trustValue as! SecTrust
 
         let first: SecCertificate?
-        if #available(macOS 12.0, *) {
+        if #available(macOS 12.0, iOS 15.0, *) {
             guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate] else {
                 return nil
             }
