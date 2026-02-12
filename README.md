@@ -68,9 +68,9 @@ let store = try AsyncImapMailStore.make(
     backend: .network
 )
 try await store.connect()
-try await store.authenticate(user: "user@example.com", password: "secret")
+_ = try await store.authenticate(user: "user@example.com", password: "secret")
 
-let inbox = try await store.openInbox(access: .readOnly)
+_ = try await store.openInbox(access: .readOnly)
 let results = try await store.search(.all)
 print("Found \(results.ids.count) messages")
 
@@ -91,18 +91,18 @@ let transport = try AsyncSmtpTransport.make(
 try await transport.connect()
 _ = try await transport.ehlo(domain: "client.example.com")
 
-try await transport.authenticate(SmtpPlainAuthentication(
+_ = try await transport.authenticate(SmtpSasl.plain(
     username: "user@example.com",
     password: "secret"
 ))
 
 let message = MimeMessage()
-message.from = [MailboxAddress("sender@example.com")]
-message.to = [MailboxAddress("recipient@example.com")]
+message.from.add(MailboxAddress(name: nil, address: "sender@example.com"))
+message.to.add(MailboxAddress(name: nil, address: "recipient@example.com"))
 message.subject = "Hello"
-message.textBody = "Hello, World!"
+message.body = TextPart("plain", "Hello, World!")
 
-try await transport.send(message)
+_ = try await transport.send(message)
 await transport.disconnect()
 ```
 
