@@ -355,7 +355,7 @@ For Microsoft Exchange servers:
 ## Dependencies
 
 - **MimeFoundation** - MIME message handling
-- **OpenSSL** (Linux) - TLS support
+- **OpenSSL** (Linux by default, optional on macOS with trait `OpenSSL`) - TLS support
 
 ## Standards Compliance
 

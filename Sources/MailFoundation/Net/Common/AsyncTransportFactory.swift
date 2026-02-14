@@ -64,7 +64,8 @@ public enum AsyncTransportBackend: Sendable {
     /// This backend uses OpenSSL for TLS and may be useful when
     /// the platform's native TLS implementation is not suitable.
     ///
-    /// - Note: Requires the COpenSSL package.
+    /// - Note: Requires the `COpenSSL` package. On Linux this is enabled by default.
+    ///   On macOS, enable package trait `OpenSSL` to make this backend available.
     case openssl
 }
 

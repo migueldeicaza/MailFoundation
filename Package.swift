@@ -17,6 +17,10 @@ let package = Package(
             targets: ["MailFoundation"]
         ),
     ],
+    traits: [
+        "OpenSSL",
+        .default(enabledTraits: [])
+    ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.1.0"),
         .package(url: "https://github.com/migueldeicaza/MimeFoundation", branch: "main")
@@ -30,11 +34,20 @@ let package = Package(
                 .apt(["libssl-dev"])
             ]
         ),
+        .systemLibrary(
+            name: "COpenSSLMac",
+            path: "Sources/COpenSSLMac",
+            pkgConfig: "openssl",
+            providers: [
+                .brew(["openssl@3"])
+            ]
+        ),
         .target(
             name: "MailFoundation",
             dependencies: [
                 "MimeFoundation",
-                .target(name: "COpenSSL", condition: .when(platforms: [.macOS, .linux]))
+                .target(name: "COpenSSL", condition: .when(platforms: [.linux])),
+                .target(name: "COpenSSLMac", condition: .when(platforms: [.macOS], traits: ["OpenSSL"]))
             ]
         ),
         .testTarget(

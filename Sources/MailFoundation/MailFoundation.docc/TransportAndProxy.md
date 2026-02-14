@@ -464,10 +464,11 @@ do {
 - Use `.network` backend for best integration with system settings
 - Network.framework handles system proxy configuration automatically
 - Supports App Transport Security (ATS) requirements
+- OpenSSL backend on macOS is optional and requires the `OpenSSL` package trait
 
 ### Linux
 
-- Use `.socket` backend with OpenSSL for TLS
+- OpenSSL support is enabled by default
 - Requires OpenSSL to be installed
 - Proxy settings must be configured explicitly
 
