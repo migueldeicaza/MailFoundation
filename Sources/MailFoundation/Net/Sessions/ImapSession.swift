@@ -36,6 +36,8 @@ public final class ImapSession {
     private let maxReads: Int
     private let timeoutMilliseconds: Int = 120_000
     private var idleTag: String?
+    private var pendingIdleEvents: [ImapIdleEvent] = []
+    private var pendingQresyncEvents: [ImapQresyncEvent] = []
     public private(set) var selectedMailbox: String?
     public private(set) var selectedState = ImapSelectedState()
     public private(set) var namespaces: ImapNamespaceResponse?
@@ -71,6 +73,8 @@ public final class ImapSession {
         transport.close()
         selectedMailbox = nil
         selectedState = ImapSelectedState()
+        pendingIdleEvents = []
+        pendingQresyncEvents = []
         namespaces = nil
         specialUseMailboxes = []
         idleTag = nil
@@ -304,6 +308,8 @@ public final class ImapSession {
                     }
                     selectedMailbox = mailbox
                     selectedState = nextState
+                    pendingIdleEvents = []
+                    pendingQresyncEvents = []
                     return response
                 }
             }
@@ -335,6 +341,8 @@ public final class ImapSession {
                     }
                     selectedMailbox = mailbox
                     selectedState = nextState
+                    pendingIdleEvents = []
+                    pendingQresyncEvents = []
                     return response
                 }
             }
@@ -355,6 +363,8 @@ public final class ImapSession {
         }
         selectedMailbox = nil
         selectedState = ImapSelectedState()
+        pendingIdleEvents = []
+        pendingQresyncEvents = []
         return response
     }
 
@@ -939,6 +949,7 @@ public final class ImapSession {
             }
 
             for message in messages {
+                _ = ingestSelectedState(from: message)
                 if let esearch = ImapESearchResponse.parse(message.line) {
                     result = ImapSearchResponse(esearch: esearch, defaultIsUid: false)
                 } else if let search = ImapSearchResponse.parse(message.line) {
@@ -978,6 +989,7 @@ public final class ImapSession {
             }
 
             for message in messages {
+                _ = ingestSelectedState(from: message)
                 if let esearch = ImapESearchResponse.parse(message.line) {
                     result = ImapSearchResponse(esearch: esearch, defaultIsUid: false)
                 } else if let search = ImapSearchResponse.parse(message.line) {
@@ -1011,6 +1023,7 @@ public final class ImapSession {
             }
 
             for message in messages {
+                _ = ingestSelectedState(from: message)
                 if let esearch = ImapESearchResponse.parse(message.line) {
                     result = ImapSearchResponse(esearch: esearch, defaultIsUid: true)
                 } else if let search = ImapSearchResponse.parse(message.line) {
@@ -1050,6 +1063,7 @@ public final class ImapSession {
             }
 
             for message in messages {
+                _ = ingestSelectedState(from: message)
                 if let esearch = ImapESearchResponse.parse(message.line) {
                     result = ImapSearchResponse(esearch: esearch, defaultIsUid: true)
                 } else if let search = ImapSearchResponse.parse(message.line) {
@@ -1660,9 +1674,13 @@ public final class ImapSession {
     public func readIdleEvents(maxReads: Int? = nil) -> [ImapIdleEvent] {
         guard client.state == .selected else { return [] }
         let limit = maxReads ?? self.maxReads
+        var events = dequeuePendingIdleEvents(limit: limit)
+        if !events.isEmpty || limit == 0 {
+            return events
+        }
+
         var reads = 0
         let deadline = makeDeadline()
-        var events: [ImapIdleEvent] = []
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: limit) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
@@ -1671,10 +1689,9 @@ public final class ImapSession {
             }
             for message in messages {
                 _ = ingestSelectedState(from: message)
-                if let event = ImapIdleEvent.parse(message.line) {
-                    events.append(event)
-                }
             }
+            let remaining = max(0, limit - events.count)
+            events.append(contentsOf: dequeuePendingIdleEvents(limit: remaining))
             if !events.isEmpty {
                 break
             }
@@ -1715,9 +1732,13 @@ public final class ImapSession {
     public func readQresyncEvents(validity: UInt32 = 0, maxReads: Int? = nil) -> [ImapQresyncEvent] {
         guard client.state == .selected else { return [] }
         let limit = maxReads ?? self.maxReads
+        var events = dequeuePendingQresyncEvents(limit: limit)
+        if !events.isEmpty || limit == 0 {
+            return events
+        }
+
         var reads = 0
         let deadline = makeDeadline()
-        var events: [ImapQresyncEvent] = []
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: limit) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
@@ -1725,10 +1746,10 @@ public final class ImapSession {
                 continue
             }
             for message in messages {
-                if let event = ingestSelectedState(from: message, validity: validity) {
-                    events.append(event)
-                }
+                _ = ingestSelectedState(from: message, validity: validity)
             }
+            let remaining = max(0, limit - events.count)
+            events.append(contentsOf: dequeuePendingQresyncEvents(limit: remaining))
             if !events.isEmpty {
                 break
             }
@@ -1752,6 +1773,39 @@ public final class ImapSession {
             }
         }
         return nil
+    }
+
+    private func dequeuePendingIdleEvents(limit: Int) -> [ImapIdleEvent] {
+        guard limit > 0, !pendingIdleEvents.isEmpty else { return [] }
+        let count = min(limit, pendingIdleEvents.count)
+        let events = Array(pendingIdleEvents.prefix(count))
+        pendingIdleEvents.removeFirst(count)
+        return events
+    }
+
+    private func dequeuePendingQresyncEvents(limit: Int) -> [ImapQresyncEvent] {
+        guard limit > 0, !pendingQresyncEvents.isEmpty else { return [] }
+        let count = min(limit, pendingQresyncEvents.count)
+        let events = Array(pendingQresyncEvents.prefix(count))
+        pendingQresyncEvents.removeFirst(count)
+        return events
+    }
+
+    private func shouldBufferIdleEvent(_ event: ImapIdleEvent, line: String) -> Bool {
+        switch event {
+        case .other:
+            return isSelectedStateUntaggedFetch(line)
+        default:
+            return true
+        }
+    }
+
+    private func isSelectedStateUntaggedFetch(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("*") else { return false }
+        let parts = trimmed.split(separator: " ", omittingEmptySubsequences: true)
+        guard parts.count >= 3, Int(parts[1]) != nil else { return false }
+        return parts[2].uppercased() == "FETCH"
     }
 
     private func ensureWrite() throws {
@@ -1901,6 +1955,9 @@ public final class ImapSession {
         }
         if let idle = ImapIdleEvent.parse(message.line) {
             selectedState.apply(event: idle)
+            if shouldBufferIdleEvent(idle, line: message.line) {
+                pendingIdleEvents.append(idle)
+            }
         }
         if let modSeq = ImapModSeqResponse.parse(message.line) {
             selectedState.apply(modSeq: modSeq)
@@ -1925,6 +1982,7 @@ public final class ImapSession {
         let validity = validity ?? selectedState.uidValidity ?? 0
         if let event = ImapQresyncEvent.parse(message, validity: validity) {
             selectedState.apply(event: event)
+            pendingQresyncEvents.append(event)
             return event
         }
         return nil

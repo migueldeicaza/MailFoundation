@@ -408,6 +408,8 @@ try session.stopIdle()
 
 `startIdle` requires the `IDLE` capability and throws
 ``SessionError/idleNotSupported`` when the server does not advertise it.
+Selected-mailbox untagged updates received while other commands run are buffered;
+`readIdleEvents()` and `readQresyncEvents()` drain that buffered state first.
 
 ## QRESYNC - Efficient Synchronization
 

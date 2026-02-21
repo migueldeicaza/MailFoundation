@@ -207,6 +207,35 @@ struct ImapParityRegressionTests {
         #expect(sent.contains(where: { $0.contains(" NOOP") }) == false)
     }
 
+    @Test("Sync IMAP UID SEARCH preserves unsolicited selected-state updates")
+    func syncImapUidSearchPreservesUnsolicitedSelectedStateUpdates() throws {
+        let transport = ParitySyncTransport(incoming: [
+            Array("* OK Ready\r\n".utf8),
+            ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1"]),
+            Array("* 5 EXISTS\r\n".utf8),
+            Array("A0002 OK [READ-WRITE] SELECT completed\r\n".utf8),
+            Array("* 42 EXISTS\r\n".utf8),
+            Array("* 5 FETCH (FLAGS (\\Seen \\Recent))\r\n".utf8),
+            Array("* SEARCH 101 102\r\n".utf8),
+            Array("A0003 OK UID SEARCH completed\r\n".utf8)
+        ])
+
+        let session = ImapSession(transport: transport, maxReads: 8)
+        _ = try session.connect()
+        _ = try session.login(user: "user", password: "pass")
+        _ = try session.select(mailbox: "INBOX")
+
+        let result = try session.uidSearch("ALL")
+        #expect(result.ids == [101, 102])
+        #expect(session.selectedState.messageCount == 42)
+
+        let events = session.readIdleEvents(maxReads: 4)
+        #expect(events == [
+            .exists(42),
+            .other("* 5 FETCH (FLAGS (\\Seen \\Recent))")
+        ])
+    }
+
     @Test("Sync IMAP ENABLE applies QRESYNC fallback when ENABLED is omitted")
     func syncImapEnableQresyncFallbackWithoutEnabledResponse() throws {
         let transport = ParitySyncTransport(incoming: [
@@ -396,6 +425,42 @@ struct ImapParityRegressionTests {
         let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
         #expect(sent.contains("DONE\r\n"))
         #expect(sent.contains(where: { $0.contains(" NOOP") }) == false)
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    @Test("Async IMAP UID SEARCH preserves unsolicited selected-state updates")
+    func asyncImapUidSearchPreservesUnsolicitedSelectedStateUpdates() async throws {
+        let transport = AsyncStreamTransport()
+        let session = AsyncImapSession(transport: transport)
+
+        let connectTask = Task { try await session.connect() }
+        await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+        _ = try await connectTask.value
+
+        let loginTask = Task { try await session.login(user: "user", password: "pass") }
+        await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1"]))
+        _ = try await loginTask.value
+
+        let selectTask = Task { try await session.select(mailbox: "INBOX") }
+        await transport.yieldIncoming(Array("* 5 EXISTS\r\n".utf8))
+        await transport.yieldIncoming(Array("A0002 OK [READ-WRITE] SELECT completed\r\n".utf8))
+        _ = try await selectTask.value
+
+        let searchTask = Task { try await session.uidSearch("ALL") }
+        await transport.yieldIncoming(Array("* 42 EXISTS\r\n".utf8))
+        await transport.yieldIncoming(Array("* 5 FETCH (FLAGS (\\Seen \\Recent))\r\n".utf8))
+        await transport.yieldIncoming(Array("* SEARCH 101 102\r\n".utf8))
+        await transport.yieldIncoming(Array("A0003 OK UID SEARCH completed\r\n".utf8))
+        let result = try await searchTask.value
+
+        #expect(result.ids == [101, 102])
+        #expect(await session.selectedState.messageCount == 42)
+
+        let events = try await session.readIdleEvents(maxEmptyReads: 1)
+        #expect(events == [
+            .exists(42),
+            .other("* 5 FETCH (FLAGS (\\Seen \\Recent))")
+        ])
     }
 
     @available(macOS 10.15, iOS 13.0, *)
