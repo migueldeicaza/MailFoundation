@@ -33,11 +33,16 @@ import Foundation
 /// Default timeout for IMAP operations in milliseconds (2 minutes, matching MailKit).
 public let defaultImapTimeoutMs = 120_000
 
+private enum AsyncImapSessionCommandContext {
+    @TaskLocal static var token: UUID?
+}
+
 @available(macOS 10.15, iOS 13.0, *)
 public actor AsyncImapSession {
     private let client: AsyncImapClient
     private let transport: AsyncTransport
     private var idleTag: String?
+    private var activeCommandToken: UUID?
     private var pendingIdleEvents: [ImapIdleEvent] = []
     private var pendingQresyncEvents: [ImapQresyncEvent] = []
     public private(set) var selectedMailbox: String?
@@ -287,7 +292,36 @@ public actor AsyncImapSession {
     }
 
     private func withSessionTimeout<T: Sendable>(_ operation: @Sendable @escaping () async throws -> T) async throws -> T {
-        try await withTimeout(milliseconds: timeoutMilliseconds, operation: operation)
+        try await withSerializedCommand {
+            try await withTimeout(milliseconds: self.timeoutMilliseconds, operation: operation)
+        }
+    }
+
+    private func withSerializedCommand<T: Sendable>(
+        _ operation: @Sendable @escaping () async throws -> T
+    ) async throws -> T {
+        if let taskToken = AsyncImapSessionCommandContext.token, activeCommandToken == taskToken {
+            return try await operation()
+        }
+
+        if activeCommandToken != nil {
+            throw SessionError.imapError(
+                status: .bad,
+                text: "The IMAP session is busy processing another command."
+            )
+        }
+
+        let token = UUID()
+        activeCommandToken = token
+        defer {
+            if activeCommandToken == token {
+                activeCommandToken = nil
+            }
+        }
+
+        return try await AsyncImapSessionCommandContext.$token.withValue(token) {
+            try await operation()
+        }
     }
 
     private func postAuthenticate() async {

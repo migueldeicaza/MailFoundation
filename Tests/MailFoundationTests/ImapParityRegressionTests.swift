@@ -464,6 +464,46 @@ struct ImapParityRegressionTests {
     }
 
     @available(macOS 10.15, iOS 13.0, *)
+    @Test("Async IMAP rejects concurrent command execution while one is in flight")
+    func asyncImapRejectsConcurrentCommandExecution() async throws {
+        let transport = AsyncStreamTransport()
+        let session = AsyncImapSession(transport: transport)
+
+        let connectTask = Task { try await session.connect() }
+        await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+        _ = try await connectTask.value
+
+        let loginTask = Task { try await session.login(user: "user", password: "pass") }
+        await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1"]))
+        _ = try await loginTask.value
+
+        let selectTask = Task { try await session.select(mailbox: "INBOX") }
+        await transport.yieldIncoming(Array("* 5 EXISTS\r\n".utf8))
+        await transport.yieldIncoming(Array("A0002 OK [READ-WRITE] SELECT completed\r\n".utf8))
+        _ = try await selectTask.value
+
+        let searchTask = Task { try await session.uidSearch("ALL", maxEmptyReads: 1_000) }
+        try await Task.sleep(nanoseconds: 10_000_000)
+
+        do {
+            _ = try await session.noop()
+            #expect(Bool(false), "NOOP should fail while another command is running")
+        } catch let error as SessionError {
+            if case .imapError(let status, let text) = error {
+                #expect(status == .bad)
+                #expect(text == "The IMAP session is busy processing another command.")
+            } else {
+                #expect(Bool(false), "Unexpected SessionError: \(error)")
+            }
+        }
+
+        await transport.yieldIncoming(Array("* SEARCH 101\r\n".utf8))
+        await transport.yieldIncoming(Array("A0003 OK UID SEARCH completed\r\n".utf8))
+        let result = try await searchTask.value
+        #expect(result.ids == [101])
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
     @Test("Async IMAP ENABLE applies QRESYNC fallback when ENABLED is omitted")
     func asyncImapEnableQresyncFallbackWithoutEnabledResponse() async throws {
         let transport = AsyncStreamTransport()

@@ -410,6 +410,8 @@ try session.stopIdle()
 ``SessionError/idleNotSupported`` when the server does not advertise it.
 Selected-mailbox untagged updates received while other commands run are buffered;
 `readIdleEvents()` and `readQresyncEvents()` drain that buffered state first.
+IMAP session commands are serialized; issuing a second command before the first
+completes throws an IMAP `BAD` session error.
 
 ## QRESYNC - Efficient Synchronization
 
