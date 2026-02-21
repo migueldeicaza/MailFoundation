@@ -171,12 +171,7 @@ public struct ImapCapabilities: Sendable, Equatable {
             return nil
         }
 
-        var capabilityTokens: [String] = []
-        while let token = reader.readToken() {
-            if let value = token.stringValue {
-                capabilityTokens.append(value)
-            }
-        }
+        let capabilityTokens = parseCapabilityTokens(from: reader.remainingString())
         guard !capabilityTokens.isEmpty else { return nil }
         return ImapCapabilities(tokens: capabilityTokens)
     }
@@ -188,18 +183,41 @@ public struct ImapCapabilities: Sendable, Equatable {
                 guard let inner = reader.readBracketedContent(materializeLiterals: false) else { return nil }
                 var innerReader = ImapLineTokenReader(line: inner)
                 guard innerReader.readCaseInsensitiveAtom("CAPABILITY") else { continue }
-                var tokens: [String] = []
-                while let token = innerReader.readToken() {
-                    if let value = token.stringValue {
-                        tokens.append(value)
-                    }
-                }
+                let tokens = parseCapabilityTokens(from: innerReader.remainingString())
                 guard !tokens.isEmpty else { return nil }
                 return ImapCapabilities(tokens: tokens)
             }
             _ = reader.readToken()
         }
         return nil
+    }
+
+    private static func parseCapabilityTokens(from text: String) -> [String] {
+        let parts = text
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+        guard !parts.isEmpty else { return [] }
+
+        var tokens: [String] = []
+        tokens.reserveCapacity(parts.count)
+
+        var index = 0
+        while index < parts.count {
+            let token = parts[index]
+            if token.caseInsensitiveEquals("LITERAL"), index + 1 < parts.count {
+                let marker = parts[index + 1]
+                if marker == "+" || marker == "-" {
+                    tokens.append("LITERAL\(marker)")
+                    index += 2
+                    continue
+                }
+            }
+
+            tokens.append(token)
+            index += 1
+        }
+
+        return tokens
     }
 }
 

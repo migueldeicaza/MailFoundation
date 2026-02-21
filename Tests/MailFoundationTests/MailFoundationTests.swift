@@ -1583,6 +1583,13 @@ func imapCapabilitiesParsing() {
     let previewCaps = ImapCapabilities.parse(from: previewLine)
     #expect(previewCaps?.supports("PREVIEW") == true)
 
+    let spacedLiteralPlus = ImapCapabilities.parse(from: "* CAPABILITY IMAP4rev1 LITERAL + IDLE")
+    #expect(spacedLiteralPlus?.supports("LITERAL+") == true)
+    #expect(spacedLiteralPlus?.supports("IDLE") == true)
+
+    let spacedLiteralMinusBracketed = ImapCapabilities.parse(from: "* OK [CAPABILITY IMAP4rev1 LITERAL -] Ready")
+    #expect(spacedLiteralMinusBracketed?.supports("LITERAL-") == true)
+
     let rev2Caps = ImapCapabilities.parse(from: "* CAPABILITY IMAP4rev2")
     #expect(rev2Caps?.supports("LITERAL-") == true)
     #expect(rev2Caps?.supports("UIDPLUS") == true)

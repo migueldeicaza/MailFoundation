@@ -230,6 +230,23 @@ func imapClientUsesNonSynchronizingLiteralWithCapability() {
     ])
 }
 
+@Test("IMAP client uses non-synchronizing literals with spaced LITERAL + capability")
+func imapClientUsesNonSynchronizingLiteralWithSpacedLiteralPlusCapability() {
+    let transport = SyncLiteralContinuationTransport()
+    let client = ImapClient()
+    client.connect(transport: transport)
+    _ = client.handleIncomingWithLiterals(Array("* CAPABILITY IMAP4rev1 LITERAL +\r\n".utf8))
+
+    _ = client.send(.login("user\r\nname", "secret"))
+
+    let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent == [
+        "A0001 LOGIN {10+}\r\n",
+        "user\r\nname",
+        " secret\r\n"
+    ])
+}
+
 @Test("IMAP client uses synchronized literals for LITERAL- payloads over 4096 bytes")
 func imapClientUsesSynchronizedLiteralWithLiteralMinusAbove4096() {
     let transport = SyncLiteralContinuationTransport(incoming: [
@@ -255,6 +272,20 @@ func imapClientUsesNonSynchronizingLiteralWithLiteralMinusAt4096() {
     let client = ImapClient()
     client.connect(transport: transport)
     _ = client.handleIncomingWithLiterals(Array("* CAPABILITY IMAP4rev1 LITERAL-\r\n".utf8))
+
+    let bounded = String(repeating: "a", count: 4095) + "\n"
+    _ = client.send(.login(bounded, "secret"))
+
+    let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent.first == "A0001 LOGIN {4096+}\r\n")
+}
+
+@Test("IMAP client uses non-synchronizing literals for spaced LITERAL - payloads up to 4096 bytes")
+func imapClientUsesNonSynchronizingLiteralWithSpacedLiteralMinusAt4096() {
+    let transport = SyncLiteralContinuationTransport()
+    let client = ImapClient()
+    client.connect(transport: transport)
+    _ = client.handleIncomingWithLiterals(Array("* CAPABILITY IMAP4rev1 LITERAL -\r\n".utf8))
 
     let bounded = String(repeating: "a", count: 4095) + "\n"
     _ = client.send(.login(bounded, "secret"))
@@ -385,6 +416,27 @@ func asyncImapClientUsesNonSynchronizingLiteralWithCapability() async throws {
 }
 
 @available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client uses non-synchronizing literals with spaced LITERAL + capability")
+func asyncImapClientUsesNonSynchronizingLiteralWithSpacedLiteralPlusCapability() async throws {
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+
+    await transport.yieldIncoming(Array("* CAPABILITY IMAP4rev1 LITERAL +\r\n".utf8))
+    _ = await client.nextMessages()
+
+    _ = try await client.send(.login("user\r\nname", "secret"))
+    let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent == [
+        "A0001 LOGIN {10+}\r\n",
+        "user\r\nname",
+        " secret\r\n"
+    ])
+
+    await client.stop()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
 @Test("Async IMAP client uses synchronized literals for LITERAL- payloads over 4096 bytes")
 func asyncImapClientUsesSynchronizedLiteralWithLiteralMinusAbove4096() async throws {
     let transport = AsyncStreamTransport()
@@ -423,6 +475,25 @@ func asyncImapClientUsesNonSynchronizingLiteralWithLiteralMinusAt4096() async th
     try await client.start()
 
     await transport.yieldIncoming(Array("* CAPABILITY IMAP4rev1 LITERAL-\r\n".utf8))
+    _ = await client.nextMessages()
+
+    let bounded = String(repeating: "a", count: 4095) + "\n"
+    _ = try await client.send(.login(bounded, "secret"))
+
+    let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent.first == "A0001 LOGIN {4096+}\r\n")
+
+    await client.stop()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client uses non-synchronizing literals for spaced LITERAL - payloads up to 4096 bytes")
+func asyncImapClientUsesNonSynchronizingLiteralWithSpacedLiteralMinusAt4096() async throws {
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+
+    await transport.yieldIncoming(Array("* CAPABILITY IMAP4rev1 LITERAL -\r\n".utf8))
     _ = await client.nextMessages()
 
     let bounded = String(repeating: "a", count: 4095) + "\n"
