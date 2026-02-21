@@ -192,6 +192,77 @@ func asyncImapClientNotifyNotSupported() async throws {
 }
 
 @available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client AUTHENTICATE challenge refreshes capabilities")
+func asyncImapClientAuthenticateChallengeRefreshesCapabilities() async throws {
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+
+    let auth = ImapSasl.login(username: "bob", password: "secret", useInitialResponse: false)
+    let authenticateTask = Task { try await client.authenticate(auth) }
+
+    guard let authenticateLine = await awaitSentCommand(transport: transport, contains: "AUTHENTICATE LOGIN") else {
+        #expect(Bool(false), "Missing AUTHENTICATE command")
+        authenticateTask.cancel()
+        await client.stop()
+        return
+    }
+
+    guard let authenticateTag = extractTag(from: authenticateLine) else {
+        #expect(Bool(false), "Missing AUTHENTICATE tag")
+        authenticateTask.cancel()
+        await client.stop()
+        return
+    }
+
+    await transport.yieldIncoming(Array("+ VXNlcm5hbWU6\r\n".utf8))
+    guard await awaitSentCommand(transport: transport, contains: "Ym9i\r\n") != nil else {
+        #expect(Bool(false), "Missing encoded username response")
+        authenticateTask.cancel()
+        await client.stop()
+        return
+    }
+
+    await transport.yieldIncoming(Array("+ UGFzc3dvcmQ6\r\n".utf8))
+    guard await awaitSentCommand(transport: transport, contains: "c2VjcmV0\r\n") != nil else {
+        #expect(Bool(false), "Missing encoded password response")
+        authenticateTask.cancel()
+        await client.stop()
+        return
+    }
+
+    await transport.yieldIncoming(Array("\(authenticateTag) OK AUTHENTICATE completed\r\n".utf8))
+
+    guard let capabilityLine = await awaitSentCommand(transport: transport, contains: " CAPABILITY\r\n") else {
+        #expect(Bool(false), "Missing CAPABILITY refresh command")
+        authenticateTask.cancel()
+        await client.stop()
+        return
+    }
+
+    guard let capabilityTag = extractTag(from: capabilityLine) else {
+        #expect(Bool(false), "Missing CAPABILITY tag")
+        authenticateTask.cancel()
+        await client.stop()
+        return
+    }
+
+    await transport.yieldIncoming(Array("* CAPABILITY IMAP4rev1 IDLE\r\n".utf8))
+    await transport.yieldIncoming(Array("\(capabilityTag) OK CAPABILITY completed\r\n".utf8))
+
+    let response = try await authenticateTask.value
+    #expect(response?.status == .ok)
+    #expect(await client.state == .authenticated)
+    #expect(await client.capabilities?.supports("IDLE") == true)
+
+    let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent.contains(where: { $0.contains("AUTHENTICATE LOGIN") }))
+    #expect(sent.contains(where: { $0.contains(" CAPABILITY\r\n") }))
+
+    await client.stop()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
 @Test("Async IMAP client protocol logger redacts on IDLE failure")
 func asyncImapClientProtocolLoggerRedactsOnIdleFailure() async throws {
     let stream = OutputStream.toMemory()

@@ -305,6 +305,9 @@ public actor AsyncImapClient {
                             } else {
                                 state = .connected
                             }
+                            if response.status == .ok, capabilitiesVersion == initialCapabilitiesVersion {
+                                _ = try? await capability()
+                            }
                             return response
                         }
                         // Check for continuation request
