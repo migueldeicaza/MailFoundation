@@ -411,7 +411,7 @@ try session.stopIdle()
 Selected-mailbox untagged updates received while other commands run are buffered;
 `readIdleEvents()` and `readQresyncEvents()` drain that buffered state first.
 IMAP session commands are serialized; issuing a second command before the first
-completes throws an IMAP `BAD` session error.
+completes queues that command until the active command finishes.
 
 ## QRESYNC - Efficient Synchronization
 

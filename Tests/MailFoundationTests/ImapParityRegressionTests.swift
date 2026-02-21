@@ -464,8 +464,8 @@ struct ImapParityRegressionTests {
     }
 
     @available(macOS 10.15, iOS 13.0, *)
-    @Test("Async IMAP rejects concurrent command execution while one is in flight")
-    func asyncImapRejectsConcurrentCommandExecution() async throws {
+    @Test("Async IMAP queues concurrent command execution while one is in flight")
+    func asyncImapQueuesConcurrentCommandExecution() async throws {
         let transport = AsyncStreamTransport()
         let session = AsyncImapSession(transport: transport)
 
@@ -484,23 +484,24 @@ struct ImapParityRegressionTests {
 
         let searchTask = Task { try await session.uidSearch("ALL", maxEmptyReads: 1_000) }
         try await Task.sleep(nanoseconds: 10_000_000)
-
-        do {
-            _ = try await session.noop()
-            #expect(Bool(false), "NOOP should fail while another command is running")
-        } catch let error as SessionError {
-            if case .imapError(let status, let text) = error {
-                #expect(status == .bad)
-                #expect(text == "The IMAP session is busy processing another command.")
-            } else {
-                #expect(Bool(false), "Unexpected SessionError: \(error)")
-            }
-        }
+        let noopTask = Task { try await session.noop() }
 
         await transport.yieldIncoming(Array("* SEARCH 101\r\n".utf8))
         await transport.yieldIncoming(Array("A0003 OK UID SEARCH completed\r\n".utf8))
         let result = try await searchTask.value
         #expect(result.ids == [101])
+
+        await transport.yieldIncoming(Array("A0004 OK NOOP completed\r\n".utf8))
+        let noopResponse = try await noopTask.value
+        #expect(noopResponse?.isOk == true)
+
+        let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+        #expect(sent == [
+            "A0001 LOGIN user pass\r\n",
+            "A0002 SELECT INBOX\r\n",
+            "A0003 UID SEARCH ALL\r\n",
+            "A0004 NOOP\r\n"
+        ])
     }
 
     @available(macOS 10.15, iOS 13.0, *)

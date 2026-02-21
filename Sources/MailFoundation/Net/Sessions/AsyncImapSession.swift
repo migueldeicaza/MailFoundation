@@ -39,10 +39,16 @@ private enum AsyncImapSessionCommandContext {
 
 @available(macOS 10.15, iOS 13.0, *)
 public actor AsyncImapSession {
+    private struct QueuedCommandWaiter {
+        let token: UUID
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     private let client: AsyncImapClient
     private let transport: AsyncTransport
     private var idleTag: String?
     private var activeCommandToken: UUID?
+    private var queuedCommandWaiters: [QueuedCommandWaiter] = []
     private var pendingIdleEvents: [ImapIdleEvent] = []
     private var pendingQresyncEvents: [ImapQresyncEvent] = []
     public private(set) var selectedMailbox: String?
@@ -304,24 +310,34 @@ public actor AsyncImapSession {
             return try await operation()
         }
 
-        if activeCommandToken != nil {
-            throw SessionError.imapError(
-                status: .bad,
-                text: "The IMAP session is busy processing another command."
-            )
+        let token = UUID()
+        if activeCommandToken == nil, queuedCommandWaiters.isEmpty {
+            activeCommandToken = token
+        } else {
+            await withCheckedContinuation { continuation in
+                queuedCommandWaiters.append(QueuedCommandWaiter(token: token, continuation: continuation))
+            }
         }
 
-        let token = UUID()
-        activeCommandToken = token
         defer {
-            if activeCommandToken == token {
-                activeCommandToken = nil
-            }
+            releaseCommandToken(token)
         }
 
         return try await AsyncImapSessionCommandContext.$token.withValue(token) {
             try await operation()
         }
+    }
+
+    private func releaseCommandToken(_ token: UUID) {
+        guard activeCommandToken == token else { return }
+        if queuedCommandWaiters.isEmpty {
+            activeCommandToken = nil
+            return
+        }
+
+        let next = queuedCommandWaiters.removeFirst()
+        activeCommandToken = next.token
+        next.continuation.resume()
     }
 
     private func postAuthenticate() async {
