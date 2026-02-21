@@ -95,7 +95,16 @@ public final class ImapClient {
     private var transport: Transport?
     private var pending: [String: PendingCommand] = [:]
     private var pendingReadChunks: [[UInt8]] = []
+    private var enabledCapabilities: Set<String> = []
+    private var utf8Enabled = false
+    private var qresyncEnabled = false
     private let emptyReadDelaySeconds: TimeInterval = 0.05
+
+    private func resetEnabledState() {
+        enabledCapabilities.removeAll(keepingCapacity: true)
+        utf8Enabled = false
+        qresyncEnabled = false
+    }
 
     /// The connection state of the IMAP client.
     public enum State: Sendable {
@@ -153,6 +162,7 @@ public final class ImapClient {
     /// - Parameter uri: The URI being connected to.
     public func connect(to uri: URL) {
         protocolLogger.logConnect(uri)
+        resetEnabledState()
         isConnected = true
         state = .connected
     }
@@ -163,12 +173,14 @@ public final class ImapClient {
     public func connect(transport: Transport) {
         self.transport = transport
         transport.open()
+        resetEnabledState()
         isConnected = true
         state = .connected
     }
 
     /// Disconnects from the server.
     public func disconnect() {
+        resetEnabledState()
         isConnected = false
         state = .disconnected
     }
@@ -208,6 +220,92 @@ public final class ImapClient {
         return kind.command(tag: tag)
     }
 
+    private func encodeMailboxNameForWire(_ mailbox: String) -> String {
+        guard !utf8Enabled else { return mailbox }
+        return ImapMailboxEncoding.encode(mailbox)
+    }
+
+    private func prepareCommandForWire(_ kind: ImapCommandKind) -> ImapCommandKind {
+        switch kind {
+        case let .select(mailbox):
+            return .select(encodeMailboxNameForWire(mailbox))
+        case let .examine(mailbox):
+            return .examine(encodeMailboxNameForWire(mailbox))
+        case let .create(mailbox):
+            return .create(encodeMailboxNameForWire(mailbox))
+        case let .delete(mailbox):
+            return .delete(encodeMailboxNameForWire(mailbox))
+        case let .rename(from, to):
+            return .rename(encodeMailboxNameForWire(from), encodeMailboxNameForWire(to))
+        case let .subscribe(mailbox):
+            return .subscribe(encodeMailboxNameForWire(mailbox))
+        case let .unsubscribe(mailbox):
+            return .unsubscribe(encodeMailboxNameForWire(mailbox))
+        case let .list(reference, mailbox):
+            return .list(encodeMailboxNameForWire(reference), encodeMailboxNameForWire(mailbox))
+        case let .listExtended(reference, mailbox, returns):
+            return .listExtended(
+                encodeMailboxNameForWire(reference),
+                encodeMailboxNameForWire(mailbox),
+                returns: returns
+            )
+        case let .listSpecialUse(reference, mailbox):
+            return .listSpecialUse(encodeMailboxNameForWire(reference), encodeMailboxNameForWire(mailbox))
+        case let .listStatus(reference, mailbox, items):
+            return .listStatus(
+                encodeMailboxNameForWire(reference),
+                encodeMailboxNameForWire(mailbox),
+                items: items
+            )
+        case let .lsub(reference, mailbox):
+            return .lsub(encodeMailboxNameForWire(reference), encodeMailboxNameForWire(mailbox))
+        case let .xlist(reference, mailbox):
+            return .xlist(encodeMailboxNameForWire(reference), encodeMailboxNameForWire(mailbox))
+        case let .status(mailbox, items):
+            return .status(encodeMailboxNameForWire(mailbox), items: items)
+        case let .getQuotaRoot(mailbox):
+            return .getQuotaRoot(encodeMailboxNameForWire(mailbox))
+        case let .getAcl(mailbox):
+            return .getAcl(encodeMailboxNameForWire(mailbox))
+        case let .setAcl(mailbox, identifier, rights):
+            return .setAcl(encodeMailboxNameForWire(mailbox), identifier: identifier, rights: rights)
+        case let .listRights(mailbox, identifier):
+            return .listRights(encodeMailboxNameForWire(mailbox), identifier: identifier)
+        case let .myRights(mailbox):
+            return .myRights(encodeMailboxNameForWire(mailbox))
+        case let .getMetadata(mailbox, options, entries):
+            return .getMetadata(encodeMailboxNameForWire(mailbox), options: options, entries: entries)
+        case let .setMetadata(mailbox, entries):
+            return .setMetadata(encodeMailboxNameForWire(mailbox), entries: entries)
+        case let .getAnnotation(mailbox, entries, attributes):
+            return .getAnnotation(encodeMailboxNameForWire(mailbox), entries: entries, attributes: attributes)
+        case let .setAnnotation(mailbox, entry, attributes):
+            return .setAnnotation(encodeMailboxNameForWire(mailbox), entry: entry, attributes: attributes)
+        case let .copy(set, mailbox):
+            return .copy(set, encodeMailboxNameForWire(mailbox))
+        case let .move(set, mailbox):
+            return .move(set, encodeMailboxNameForWire(mailbox))
+        case let .uidCopy(set, mailbox):
+            return .uidCopy(set, encodeMailboxNameForWire(mailbox))
+        case let .uidMove(set, mailbox):
+            return .uidMove(set, encodeMailboxNameForWire(mailbox))
+        default:
+            return kind
+        }
+    }
+
+    func markEnabledCapabilities(_ capabilities: [String]) {
+        for capability in capabilities {
+            let upper = capability.uppercased()
+            enabledCapabilities.insert(upper)
+            if upper == "UTF8=ACCEPT" {
+                utf8Enabled = true
+            } else if upper == "QRESYNC" {
+                qresyncEnabled = true
+            }
+        }
+    }
+
     /// Sends a command and returns it.
     ///
     /// The command is serialized and written to the transport. State is updated
@@ -217,7 +315,7 @@ public final class ImapClient {
     /// - Returns: The sent command.
     @discardableResult
     public func send(_ kind: ImapCommandKind) -> ImapCommand {
-        let command = makeCommand(kind)
+        let command = makeCommand(prepareCommandForWire(kind))
         if case .login = kind {
             beginAuthentication()
             pending[command.tag] = .login
@@ -376,6 +474,9 @@ public final class ImapClient {
         protocolLogger.logServer(bytes, offset: 0, count: bytes.count)
         let messages = literalDecoder.append(bytes)
         for message in messages {
+            if let enabled = ImapEnabledResponse.parse(message.line) {
+                markEnabledCapabilities(enabled.capabilities)
+            }
             if let response = message.response {
                 handleResponse(response)
             }
@@ -404,6 +505,7 @@ public final class ImapClient {
             if response.status == .preauth {
                 state = .authenticated
             } else if response.status == .bye {
+                resetEnabledState()
                 state = .disconnected
                 isConnected = false
             }
@@ -429,6 +531,7 @@ public final class ImapClient {
                 }
             case .logout:
                 if response.status == .ok || response.status == .bye {
+                    resetEnabledState()
                     state = .disconnected
                     isConnected = false
                 }

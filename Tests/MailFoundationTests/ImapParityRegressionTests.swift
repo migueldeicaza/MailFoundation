@@ -184,6 +184,52 @@ struct ImapParityRegressionTests {
         #expect(sent.contains(where: { $0.contains(" NOOP") }) == false)
     }
 
+    @Test("Sync IMAP ENABLE applies QRESYNC fallback when ENABLED is omitted")
+    func syncImapEnableQresyncFallbackWithoutEnabledResponse() throws {
+        let transport = ParitySyncTransport(incoming: [
+            Array("* OK Ready\r\n".utf8),
+            ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1", "ENABLE", "QRESYNC", "CONDSTORE"]),
+            Array("A0002 OK ENABLE completed\r\n".utf8)
+        ])
+
+        let session = ImapSession(transport: transport, maxReads: 8)
+        _ = try session.connect()
+        _ = try session.login(user: "user", password: "pass")
+        let enabled = try session.enable(["QRESYNC", "CONDSTORE"])
+
+        #expect(enabled.contains(where: { $0.uppercased() == "QRESYNC" }))
+        #expect(enabled.contains(where: { $0.uppercased() == "CONDSTORE" }))
+    }
+
+    @Test("Sync IMAP ENABLE requires authenticated state (not selected)")
+    func syncImapEnableRequiresAuthenticatedState() throws {
+        let transport = ParitySyncTransport(incoming: [
+            Array("* OK Ready\r\n".utf8),
+            ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1", "ENABLE", "QRESYNC", "CONDSTORE"]),
+            Array("A0002 OK [READ-WRITE] SELECT completed\r\n".utf8)
+        ])
+
+        let session = ImapSession(transport: transport, maxReads: 8)
+        _ = try session.connect()
+        _ = try session.login(user: "user", password: "pass")
+        _ = try session.select(mailbox: "INBOX")
+
+        do {
+            _ = try session.enable(["QRESYNC", "CONDSTORE"])
+            #expect(Bool(false), "ENABLE should fail in selected state")
+        } catch let error as SessionError {
+            if case .invalidImapState(let expected, let actual) = error {
+                #expect(expected == .authenticated)
+                #expect(actual == .selected)
+            } else {
+                #expect(Bool(false), "Unexpected SessionError: \(error)")
+            }
+        }
+
+        let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+        #expect(sent == ["A0001 LOGIN user pass\r\n", "A0002 SELECT INBOX\r\n"])
+    }
+
     @available(macOS 10.15, iOS 13.0, *)
     @Test("Async IMAP connect rejects BYE greeting")
     func asyncImapConnectRejectsByeGreeting() async throws {
@@ -276,5 +322,61 @@ struct ImapParityRegressionTests {
         let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
         #expect(sent.contains("DONE\r\n"))
         #expect(sent.contains(where: { $0.contains(" NOOP") }) == false)
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    @Test("Async IMAP ENABLE applies QRESYNC fallback when ENABLED is omitted")
+    func asyncImapEnableQresyncFallbackWithoutEnabledResponse() async throws {
+        let transport = AsyncStreamTransport()
+        let session = AsyncImapSession(transport: transport)
+
+        let connectTask = Task { try await session.connect() }
+        await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+        _ = try await connectTask.value
+
+        let loginTask = Task { try await session.login(user: "user", password: "pass") }
+        await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1", "ENABLE", "QRESYNC", "CONDSTORE"]))
+        _ = try await loginTask.value
+
+        let enableTask = Task { try await session.enable(["QRESYNC", "CONDSTORE"]) }
+        await transport.yieldIncoming(Array("A0002 OK ENABLE completed\r\n".utf8))
+        let enabled = try await enableTask.value
+
+        #expect(enabled.contains(where: { $0.uppercased() == "QRESYNC" }))
+        #expect(enabled.contains(where: { $0.uppercased() == "CONDSTORE" }))
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    @Test("Async IMAP ENABLE requires authenticated state (not selected)")
+    func asyncImapEnableRequiresAuthenticatedState() async throws {
+        let transport = AsyncStreamTransport()
+        let session = AsyncImapSession(transport: transport)
+
+        let connectTask = Task { try await session.connect() }
+        await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+        _ = try await connectTask.value
+
+        let loginTask = Task { try await session.login(user: "user", password: "pass") }
+        await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1", "ENABLE", "QRESYNC", "CONDSTORE"]))
+        _ = try await loginTask.value
+
+        let selectTask = Task { try await session.select(mailbox: "INBOX") }
+        await transport.yieldIncoming(Array("A0002 OK [READ-WRITE] SELECT completed\r\n".utf8))
+        _ = try await selectTask.value
+
+        do {
+            _ = try await session.enable(["QRESYNC", "CONDSTORE"])
+            #expect(Bool(false), "ENABLE should fail in selected state")
+        } catch let error as SessionError {
+            if case .invalidImapState(let expected, let actual) = error {
+                #expect(expected == .authenticated)
+                #expect(actual == .selected)
+            } else {
+                #expect(Bool(false), "Unexpected SessionError: \(error)")
+            }
+        }
+
+        let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+        #expect(sent == ["A0001 LOGIN user pass\r\n", "A0002 SELECT INBOX\r\n"])
     }
 }

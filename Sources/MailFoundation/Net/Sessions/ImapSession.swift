@@ -229,10 +229,11 @@ public final class ImapSession {
     }
 
     public func enable(_ capabilities: [String]) throws -> [String] {
-        try ensureAuthenticated()
+        try ensureAuthenticatedOnly()
         let command = client.send(.enable(capabilities))
         try ensureWrite()
         var enabled: [String] = []
+        var sawEnabledResponse = false
         var reads = 0
         while reads < maxReads {
             let messages = client.receiveWithLiterals()
@@ -242,11 +243,27 @@ public final class ImapSession {
             }
             for message in messages {
                 if let response = ImapEnabledResponse.parse(message.line) {
+                    sawEnabledResponse = true
                     enabled.append(contentsOf: response.capabilities)
                 }
                 if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
                     guard response.isOk else {
                         throw SessionError.imapError(status: response.status, text: response.text)
+                    }
+
+                    // iCloud quirk: some servers return tagged OK for `ENABLE QRESYNC CONDSTORE`
+                    // without sending an untagged ENABLED response.
+                    if !sawEnabledResponse {
+                        let requested = Set(capabilities.map { $0.uppercased() })
+                        if requested.contains("QRESYNC"), requested.contains("CONDSTORE") {
+                            client.markEnabledCapabilities(["QRESYNC", "CONDSTORE"])
+                            if !enabled.contains(where: { $0.caseInsensitiveCompare("QRESYNC") == .orderedSame }) {
+                                enabled.append("QRESYNC")
+                            }
+                            if !enabled.contains(where: { $0.caseInsensitiveCompare("CONDSTORE") == .orderedSame }) {
+                                enabled.append("CONDSTORE")
+                            }
+                        }
                     }
                     return enabled
                 }
@@ -1720,6 +1737,16 @@ public final class ImapSession {
     private func ensureAuthenticated(allowIdle: Bool = false) throws {
         let current = ImapSessionState(client.state)
         guard current == .authenticated || current == .selected else {
+            throw SessionError.invalidImapState(expected: .authenticated, actual: current)
+        }
+        if !allowIdle {
+            try ensureIdleNotActive()
+        }
+    }
+
+    private func ensureAuthenticatedOnly(allowIdle: Bool = false) throws {
+        let current = ImapSessionState(client.state)
+        guard current == .authenticated else {
             throw SessionError.invalidImapState(expected: .authenticated, actual: current)
         }
         if !allowIdle {

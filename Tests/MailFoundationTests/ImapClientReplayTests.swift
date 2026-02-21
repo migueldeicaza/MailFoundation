@@ -199,6 +199,57 @@ func imapClientUsesSynchronizedLiteralWithoutCapability() {
     #expect(continuation.first?.kind == .continuation)
 }
 
+@Test("IMAP client encodes mailbox names before UTF8=ACCEPT is enabled")
+func imapClientEncodesMailboxNamesBeforeUtf8Enabled() {
+    let transport = SyncLiteralContinuationTransport()
+    let client = ImapClient()
+    client.connect(transport: transport)
+
+    _ = client.send(.select("Fólder"))
+
+    let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+    let encoded = ImapMailboxEncoding.encode("Fólder")
+    #expect(sent == ["A0001 SELECT \(encoded)\r\n"])
+}
+
+@Test("IMAP client sends UTF-8 mailbox names after ENABLED UTF8=ACCEPT")
+func imapClientSendsUtf8MailboxNamesAfterEnableUtf8Accept() {
+    let transport = SyncLiteralContinuationTransport()
+    let client = ImapClient()
+    client.connect(transport: transport)
+    _ = client.handleIncomingWithLiterals(Array("* CAPABILITY IMAP4rev1 LITERAL+\r\n".utf8))
+    _ = client.handleIncomingWithLiterals(Array("* ENABLED UTF8=ACCEPT\r\n".utf8))
+
+    _ = client.send(.select("Fólder"))
+
+    let sent = transport.written
+    #expect(sent.count == 3)
+    if sent.count == 3 {
+        #expect(String(decoding: sent[0], as: UTF8.self) == "A0001 SELECT {7+}\r\n")
+        #expect(String(decoding: sent[1], as: UTF8.self) == "Fólder")
+        #expect(String(decoding: sent[2], as: UTF8.self) == "\r\n")
+    }
+}
+
+@Test("IMAP client resets UTF-8 mailbox mode on disconnect")
+func imapClientResetsUtf8MailboxModeOnDisconnect() {
+    let firstTransport = SyncLiteralContinuationTransport()
+    let client = ImapClient()
+    client.connect(transport: firstTransport)
+    _ = client.handleIncomingWithLiterals(Array("* CAPABILITY IMAP4rev1 LITERAL+\r\n".utf8))
+    _ = client.handleIncomingWithLiterals(Array("* ENABLED UTF8=ACCEPT\r\n".utf8))
+
+    client.disconnect()
+
+    let secondTransport = SyncLiteralContinuationTransport()
+    client.connect(transport: secondTransport)
+    _ = client.send(.select("Fólder"))
+
+    let sent = secondTransport.written.map { String(decoding: $0, as: UTF8.self) }
+    let encoded = ImapMailboxEncoding.encode("Fólder")
+    #expect(sent == ["A0001 SELECT \(encoded)\r\n"])
+}
+
 @Test("IMAP client does not split literal marker text inside quoted command arguments")
 func imapClientDoesNotSplitQuotedLiteralMarkerText() {
     let transport = SyncLiteralContinuationTransport()
@@ -371,6 +422,73 @@ func asyncImapClientUsesSynchronizedLiteralWithoutCapability() async throws {
 
     let messages = await client.nextMessages()
     #expect(messages.first?.response?.kind == .continuation)
+
+    await client.stop()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client encodes mailbox names before UTF8=ACCEPT is enabled")
+func asyncImapClientEncodesMailboxNamesBeforeUtf8Enabled() async throws {
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+
+    _ = try await client.send(.select("Fólder"))
+
+    let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+    let encoded = ImapMailboxEncoding.encode("Fólder")
+    #expect(sent == ["A0001 SELECT \(encoded)\r\n"])
+
+    await client.stop()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client sends UTF-8 mailbox names after ENABLED UTF8=ACCEPT")
+func asyncImapClientSendsUtf8MailboxNamesAfterEnableUtf8Accept() async throws {
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+
+    await transport.yieldIncoming(Array("* CAPABILITY IMAP4rev1 LITERAL+\r\n".utf8))
+    await transport.yieldIncoming(Array("* ENABLED UTF8=ACCEPT\r\n".utf8))
+    _ = await client.nextMessages()
+    _ = await client.nextMessages()
+
+    _ = try await client.send(.select("Fólder"))
+    let sent = await transport.sentSnapshot()
+
+    #expect(sent.count == 3)
+    if sent.count == 3 {
+        #expect(String(decoding: sent[0], as: UTF8.self) == "A0001 SELECT {7+}\r\n")
+        #expect(String(decoding: sent[1], as: UTF8.self) == "Fólder")
+        #expect(String(decoding: sent[2], as: UTF8.self) == "\r\n")
+    }
+
+    await client.stop()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client resets UTF-8 mailbox mode on logout")
+func asyncImapClientResetsUtf8MailboxModeOnLogout() async throws {
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+
+    await transport.yieldIncoming(Array("* CAPABILITY IMAP4rev1 LITERAL+\r\n".utf8))
+    await transport.yieldIncoming(Array("* ENABLED UTF8=ACCEPT\r\n".utf8))
+    _ = await client.nextMessages()
+    _ = await client.nextMessages()
+
+    let logoutCommand = try await client.send(.logout)
+    await transport.yieldIncoming(Array("* BYE Logging out\r\n".utf8))
+    await transport.yieldIncoming(Array("\(logoutCommand.tag) OK LOGOUT completed\r\n".utf8))
+    _ = await client.waitForTagged(logoutCommand.tag)
+
+    _ = try await client.send(.select("Fólder"))
+    let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+    let encoded = ImapMailboxEncoding.encode("Fólder")
+    #expect(sent.contains("A0002 SELECT \(encoded)\r\n"))
+    #expect(!sent.contains("A0002 SELECT {7+}\r\n"))
 
     await client.stop()
 }

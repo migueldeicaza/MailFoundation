@@ -277,10 +277,11 @@ public actor AsyncImapSession {
     }
 
     public func enable(_ capabilities: [String], maxEmptyReads: Int = 10) async throws -> [String] {
-        try await ensureAuthenticated()
+        try await ensureAuthenticatedOnly()
         return try await withSessionTimeout {
             let command = try await self.client.send(.enable(capabilities))
             var enabled: [String] = []
+            var sawEnabledResponse = false
             var emptyReads = 0
             while emptyReads < maxEmptyReads {
                 try Task.checkCancellation()
@@ -295,11 +296,27 @@ public actor AsyncImapSession {
                 emptyReads = 0
                 for message in messages {
                     if let response = ImapEnabledResponse.parse(message.line) {
+                        sawEnabledResponse = true
                         enabled.append(contentsOf: response.capabilities)
                     }
                     if let response = message.response, case let .tagged(tag) = response.kind, tag == command.tag {
                         guard response.isOk else {
                             throw SessionError.imapError(status: response.status, text: response.text)
+                        }
+
+                        // iCloud quirk: some servers return tagged OK for `ENABLE QRESYNC CONDSTORE`
+                        // without sending an untagged ENABLED response.
+                        if !sawEnabledResponse {
+                            let requested = Set(capabilities.map { $0.uppercased() })
+                            if requested.contains("QRESYNC"), requested.contains("CONDSTORE") {
+                                await self.client.markEnabledCapabilities(["QRESYNC", "CONDSTORE"])
+                                if !enabled.contains(where: { $0.caseInsensitiveCompare("QRESYNC") == .orderedSame }) {
+                                    enabled.append("QRESYNC")
+                                }
+                                if !enabled.contains(where: { $0.caseInsensitiveCompare("CONDSTORE") == .orderedSame }) {
+                                    enabled.append("CONDSTORE")
+                                }
+                            }
                         }
                         return enabled
                     }
@@ -2230,6 +2247,16 @@ public actor AsyncImapSession {
     private func ensureAuthenticated(allowIdle: Bool = false) async throws {
         let current = ImapSessionState(await client.state)
         guard current == .authenticated || current == .selected else {
+            throw SessionError.invalidImapState(expected: .authenticated, actual: current)
+        }
+        if !allowIdle {
+            try await ensureIdleNotActive()
+        }
+    }
+
+    private func ensureAuthenticatedOnly(allowIdle: Bool = false) async throws {
+        let current = ImapSessionState(await client.state)
+        guard current == .authenticated else {
             throw SessionError.invalidImapState(expected: .authenticated, actual: current)
         }
         if !allowIdle {
