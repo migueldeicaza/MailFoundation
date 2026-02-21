@@ -53,6 +53,28 @@ private func awaitSentCommand(transport: AsyncStreamTransport, contains token: S
     return nil
 }
 
+private final class SyncLiteralContinuationTransport: Transport {
+    var incoming: [[UInt8]]
+    var written: [[UInt8]] = []
+
+    init(incoming: [[UInt8]] = []) {
+        self.incoming = incoming
+    }
+
+    func open() {}
+    func close() {}
+
+    func write(_ bytes: [UInt8]) -> Int {
+        written.append(bytes)
+        return bytes.count
+    }
+
+    func readAvailable(maxLength: Int) -> [UInt8] {
+        guard !incoming.isEmpty else { return [] }
+        return incoming.removeFirst()
+    }
+}
+
 @Test("IMAP client IDLE not supported (replay)")
 func imapClientIdleNotSupportedReplay() {
     let transport = ImapReplayTransport(steps: [
@@ -155,6 +177,96 @@ func imapClientProtocolLoggerRedactsOnNotifyFailureReplay() {
     #expect(transport.failures.isEmpty)
 }
 
+@Test("IMAP client uses synchronized literals without LITERAL+ capability")
+func imapClientUsesSynchronizedLiteralWithoutCapability() {
+    let transport = SyncLiteralContinuationTransport(incoming: [
+        Array("+ Ready for literal\r\n".utf8)
+    ])
+
+    let client = ImapClient()
+    client.connect(transport: transport)
+
+    _ = client.send(.login("user\r\nname", "secret"))
+
+    let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent == [
+        "A0001 LOGIN {10}\r\n",
+        "user\r\nname",
+        " secret\r\n"
+    ])
+
+    let continuation = client.receive()
+    #expect(continuation.first?.kind == .continuation)
+}
+
+@Test("IMAP client uses non-synchronizing literals with LITERAL+ capability")
+func imapClientUsesNonSynchronizingLiteralWithCapability() {
+    let transport = SyncLiteralContinuationTransport()
+    let client = ImapClient()
+    client.connect(transport: transport)
+    _ = client.handleIncomingWithLiterals(Array("* CAPABILITY IMAP4rev1 LITERAL+\r\n".utf8))
+
+    _ = client.send(.login("user\r\nname", "secret"))
+
+    let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent == [
+        "A0001 LOGIN {10+}\r\n",
+        "user\r\nname",
+        " secret\r\n"
+    ])
+}
+
+@Test("IMAP client uses synchronized literals for LITERAL- payloads over 4096 bytes")
+func imapClientUsesSynchronizedLiteralWithLiteralMinusAbove4096() {
+    let transport = SyncLiteralContinuationTransport(incoming: [
+        Array("+ Ready for literal\r\n".utf8)
+    ])
+    let client = ImapClient()
+    client.connect(transport: transport)
+    _ = client.handleIncomingWithLiterals(Array("* CAPABILITY IMAP4rev1 LITERAL-\r\n".utf8))
+
+    let oversized = String(repeating: "a", count: 4096) + "\n"
+    _ = client.send(.login(oversized, "secret"))
+
+    let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent.first == "A0001 LOGIN {4097}\r\n")
+
+    let continuation = client.receive()
+    #expect(continuation.first?.kind == .continuation)
+}
+
+@Test("IMAP client uses non-synchronizing literals for LITERAL- payloads up to 4096 bytes")
+func imapClientUsesNonSynchronizingLiteralWithLiteralMinusAt4096() {
+    let transport = SyncLiteralContinuationTransport()
+    let client = ImapClient()
+    client.connect(transport: transport)
+    _ = client.handleIncomingWithLiterals(Array("* CAPABILITY IMAP4rev1 LITERAL-\r\n".utf8))
+
+    let bounded = String(repeating: "a", count: 4095) + "\n"
+    _ = client.send(.login(bounded, "secret"))
+
+    let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent.first == "A0001 LOGIN {4096+}\r\n")
+}
+
+@Test("IMAP client stops literal upload when server rejects before continuation")
+func imapClientStopsLiteralUploadOnTaggedRejection() {
+    let transport = SyncLiteralContinuationTransport(incoming: [
+        Array("A0001 BAD Literal rejected\r\n".utf8)
+    ])
+
+    let client = ImapClient()
+    client.connect(transport: transport)
+
+    let command = client.send(.login("user\r\nname", "secret"))
+    let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent == ["A0001 LOGIN {10}\r\n"])
+    #expect(client.lastWriteSucceeded == true)
+
+    let response = client.waitForTagged(command.tag, maxReads: 2)
+    #expect(response?.status == .bad)
+}
+
 @available(macOS 10.15, iOS 13.0, *)
 @Test("Async IMAP client IDLE not supported")
 func asyncImapClientIdleNotSupported() async throws {
@@ -167,6 +279,135 @@ func asyncImapClientIdleNotSupported() async throws {
     #expect(String(decoding: sent.last ?? [], as: UTF8.self).contains("IDLE"))
 
     await transport.yieldIncoming(Array("\(command.tag) BAD IDLE not supported.\r\n".utf8))
+    let response = await client.waitForTagged(command.tag)
+    #expect(response?.status == .bad)
+
+    await client.stop()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client uses synchronized literals without LITERAL+ capability")
+func asyncImapClientUsesSynchronizedLiteralWithoutCapability() async throws {
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+
+    let sendTask = Task { try await client.send(.login("user\r\nname", "secret")) }
+    guard await awaitSentCommand(transport: transport, contains: "LOGIN {10}\r\n") != nil else {
+        #expect(Bool(false), "Missing synchronized literal LOGIN header")
+        sendTask.cancel()
+        await client.stop()
+        return
+    }
+
+    await transport.yieldIncoming(Array("+ Ready for literal\r\n".utf8))
+    _ = try await sendTask.value
+
+    let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent == [
+        "A0001 LOGIN {10}\r\n",
+        "user\r\nname",
+        " secret\r\n"
+    ])
+
+    let messages = await client.nextMessages()
+    #expect(messages.first?.response?.kind == .continuation)
+
+    await client.stop()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client uses non-synchronizing literals with LITERAL+ capability")
+func asyncImapClientUsesNonSynchronizingLiteralWithCapability() async throws {
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+
+    await transport.yieldIncoming(Array("* CAPABILITY IMAP4rev1 LITERAL+\r\n".utf8))
+    _ = await client.nextMessages()
+
+    _ = try await client.send(.login("user\r\nname", "secret"))
+    let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent == [
+        "A0001 LOGIN {10+}\r\n",
+        "user\r\nname",
+        " secret\r\n"
+    ])
+
+    await client.stop()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client uses synchronized literals for LITERAL- payloads over 4096 bytes")
+func asyncImapClientUsesSynchronizedLiteralWithLiteralMinusAbove4096() async throws {
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+
+    await transport.yieldIncoming(Array("* CAPABILITY IMAP4rev1 LITERAL-\r\n".utf8))
+    _ = await client.nextMessages()
+
+    let oversized = String(repeating: "a", count: 4096) + "\n"
+    let sendTask = Task { try await client.send(.login(oversized, "secret")) }
+    guard await awaitSentCommand(transport: transport, contains: "LOGIN {4097}\r\n") != nil else {
+        #expect(Bool(false), "Missing synchronized literal LOGIN header for LITERAL- > 4096")
+        sendTask.cancel()
+        await client.stop()
+        return
+    }
+
+    await transport.yieldIncoming(Array("+ Ready for literal\r\n".utf8))
+    _ = try await sendTask.value
+
+    let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent.first == "A0001 LOGIN {4097}\r\n")
+
+    let messages = await client.nextMessages()
+    #expect(messages.first?.response?.kind == .continuation)
+
+    await client.stop()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client uses non-synchronizing literals for LITERAL- payloads up to 4096 bytes")
+func asyncImapClientUsesNonSynchronizingLiteralWithLiteralMinusAt4096() async throws {
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+
+    await transport.yieldIncoming(Array("* CAPABILITY IMAP4rev1 LITERAL-\r\n".utf8))
+    _ = await client.nextMessages()
+
+    let bounded = String(repeating: "a", count: 4095) + "\n"
+    _ = try await client.send(.login(bounded, "secret"))
+
+    let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent.first == "A0001 LOGIN {4096+}\r\n")
+
+    await client.stop()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client stops literal upload when server rejects before continuation")
+func asyncImapClientStopsLiteralUploadOnTaggedRejection() async throws {
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+
+    let sendTask = Task { try await client.send(.login("user\r\nname", "secret")) }
+    guard await awaitSentCommand(transport: transport, contains: "LOGIN {10}\r\n") != nil else {
+        #expect(Bool(false), "Missing synchronized literal LOGIN header")
+        sendTask.cancel()
+        await client.stop()
+        return
+    }
+
+    await transport.yieldIncoming(Array("A0001 BAD Literal rejected\r\n".utf8))
+    let command = try await sendTask.value
+
+    let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent == ["A0001 LOGIN {10}\r\n"])
+
     let response = await client.waitForTagged(command.tag)
     #expect(response?.status == .bad)
 

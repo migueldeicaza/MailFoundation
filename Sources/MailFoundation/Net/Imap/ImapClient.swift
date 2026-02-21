@@ -94,6 +94,7 @@ public final class ImapClient {
     private var literalDecoder = ImapLiteralDecoder()
     private var transport: Transport?
     private var pending: [String: PendingCommand] = [:]
+    private var pendingReadChunks: [[UInt8]] = []
     private let emptyReadDelaySeconds: TimeInterval = 0.05
 
     /// The connection state of the IMAP client.
@@ -243,9 +244,11 @@ public final class ImapClient {
     @discardableResult
     public func send(_ command: ImapCommand) -> [UInt8] {
         let bytes = Array(command.serialized.utf8)
-        protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
-        let written = transport?.write(bytes) ?? 0
-        lastWriteSucceeded = written == bytes.count
+        if let literalParts = ImapLiteralCommandParts.parse(bytes) {
+            sendCommandWithLiterals(literalParts)
+        } else {
+            writeCommandChunk(bytes)
+        }
         return bytes
     }
 
@@ -256,6 +259,102 @@ public final class ImapClient {
         protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
         let written = transport?.write(bytes) ?? 0
         lastWriteSucceeded = written == bytes.count
+    }
+
+    private func writeCommandChunk(_ bytes: [UInt8]) {
+        protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
+        let written = transport?.write(bytes) ?? 0
+        lastWriteSucceeded = written == bytes.count
+    }
+
+    private func canUseNonSynchronizingLiteral(length: Int) -> Bool {
+        guard let capabilities else { return false }
+        if capabilities.supports("LITERAL+") {
+            return true
+        }
+        return length <= 4096 && capabilities.supports("LITERAL-")
+    }
+
+    private enum LiteralContinuationResult {
+        case continuation
+        case tagged
+        case failed
+    }
+
+    private func waitForLiteralContinuation(maxReads: Int = 2400) -> LiteralContinuationResult {
+        guard let transport else { return .failed }
+        var reads = 0
+        var decoder = ImapResponseDecoder()
+
+        while reads < maxReads {
+            let bytes = transport.readAvailable(maxLength: 4096)
+            guard !bytes.isEmpty else {
+                reads += 1
+                Thread.sleep(forTimeInterval: emptyReadDelaySeconds)
+                continue
+            }
+
+            reads = 0
+            pendingReadChunks.append(bytes)
+            let responses = decoder.append(bytes)
+
+            for response in responses {
+                if case .continuation = response.kind {
+                    return .continuation
+                }
+
+                if case .tagged = response.kind {
+                    // Command rejected before continuation.
+                    return .tagged
+                }
+            }
+        }
+
+        return .failed
+    }
+
+    private func sendCommandWithLiterals(_ literalParts: (parts: [ImapSerializedLiteralPart], tail: [UInt8])) {
+        var success = true
+
+        for part in literalParts.parts {
+            let usePlus = canUseNonSynchronizingLiteral(length: part.length)
+            var header = part.leading
+            header.append(contentsOf: Array("{\(part.length)\(usePlus ? "+" : "")}\r\n".utf8))
+            writeCommandChunk(header)
+            success = success && lastWriteSucceeded
+            guard success else {
+                lastWriteSucceeded = false
+                return
+            }
+
+            if !usePlus {
+                switch waitForLiteralContinuation() {
+                case .continuation:
+                    break
+                case .tagged:
+                    // The command was rejected before continuation; do not send literal data.
+                    lastWriteSucceeded = success
+                    return
+                case .failed:
+                    lastWriteSucceeded = false
+                    return
+                }
+            }
+
+            writeCommandChunk(part.literal)
+            success = success && lastWriteSucceeded
+            guard success else {
+                lastWriteSucceeded = false
+                return
+            }
+        }
+
+        if !literalParts.tail.isEmpty {
+            writeCommandChunk(literalParts.tail)
+            success = success && lastWriteSucceeded
+        }
+
+        lastWriteSucceeded = success
     }
 
     /// Processes incoming data and returns parsed responses.
@@ -341,6 +440,11 @@ public final class ImapClient {
     ///
     /// - Returns: The parsed responses.
     public func receive() -> [ImapResponse] {
+        if !pendingReadChunks.isEmpty {
+            let bytes = pendingReadChunks.removeFirst()
+            return handleIncoming(bytes)
+        }
+
         guard let transport else { return [] }
         let bytes = transport.readAvailable(maxLength: 4096)
         guard !bytes.isEmpty else {
@@ -354,6 +458,11 @@ public final class ImapClient {
     ///
     /// - Returns: The parsed messages with literal data.
     public func receiveWithLiterals() -> [ImapLiteralMessage] {
+        if !pendingReadChunks.isEmpty {
+            let bytes = pendingReadChunks.removeFirst()
+            return handleIncomingWithLiterals(bytes)
+        }
+
         guard let transport else { return [] }
         let bytes = transport.readAvailable(maxLength: 4096)
         guard !bytes.isEmpty else {

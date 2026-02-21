@@ -47,6 +47,7 @@ public actor AsyncImapClient {
     private var literalDecoder = ImapLiteralDecoder()
     private var tagGenerator = ImapTagGenerator()
     private var pending: [String: PendingCommand] = [:]
+    private var pendingReadChunks: [[UInt8]] = []
     private let detector = ImapAuthenticationSecretDetector()
 
     public enum State: Sendable {
@@ -190,8 +191,11 @@ public actor AsyncImapClient {
     @discardableResult
     public func send(_ command: ImapCommand) async throws -> [UInt8] {
         let bytes = Array(command.serialized.utf8)
-        protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
-        try await transport.send(bytes)
+        if let literalParts = ImapLiteralCommandParts.parse(bytes) {
+            try await sendCommandWithLiterals(literalParts)
+        } else {
+            try await writeCommandChunk(bytes)
+        }
         return bytes
     }
 
@@ -200,13 +204,90 @@ public actor AsyncImapClient {
         try await transport.send(bytes)
     }
 
+    private func writeCommandChunk(_ bytes: [UInt8]) async throws {
+        protocolLogger.logClient(bytes, offset: 0, count: bytes.count)
+        try await transport.send(bytes)
+    }
+
+    private func canUseNonSynchronizingLiteral(length: Int) -> Bool {
+        guard let capabilities else { return false }
+        if capabilities.supports("LITERAL+") {
+            return true
+        }
+        return length <= 4096 && capabilities.supports("LITERAL-")
+    }
+
+    private enum LiteralContinuationResult {
+        case continuation
+        case tagged
+        case disconnected
+    }
+
+    private func waitForLiteralContinuation() async -> LiteralContinuationResult {
+        var decoder = ImapResponseDecoder()
+
+        while true {
+            let chunk = await queue.dequeue()
+            guard let chunk else {
+                state = .disconnected
+                return .disconnected
+            }
+
+            pendingReadChunks.append(chunk)
+            let responses = decoder.append(chunk)
+
+            for response in responses {
+                if case .continuation = response.kind {
+                    return .continuation
+                }
+
+                if case .tagged = response.kind {
+                    return .tagged
+                }
+            }
+        }
+    }
+
+    private func sendCommandWithLiterals(_ literalParts: (parts: [ImapSerializedLiteralPart], tail: [UInt8])) async throws {
+        for part in literalParts.parts {
+            let usePlus = canUseNonSynchronizingLiteral(length: part.length)
+            var header = part.leading
+            header.append(contentsOf: Array("{\(part.length)\(usePlus ? "+" : "")}\r\n".utf8))
+            try await writeCommandChunk(header)
+
+            if !usePlus {
+                switch await waitForLiteralContinuation() {
+                case .continuation:
+                    break
+                case .tagged:
+                    // The command was rejected before continuation; do not send literal data.
+                    return
+                case .disconnected:
+                    throw AsyncTransportError.connectionFailed
+                }
+            }
+
+            try await writeCommandChunk(part.literal)
+        }
+
+        if !literalParts.tail.isEmpty {
+            try await writeCommandChunk(literalParts.tail)
+        }
+    }
+
     public func nextMessages() async -> [ImapLiteralMessage] {
-        let chunk = await queue.dequeue()
-        guard let chunk else {
-            debugLog("[nextMessages] queue returned nil (finished)")
-            // Mark as disconnected so fetch loops can detect connection loss
-            state = .disconnected
-            return []
+        let chunk: [UInt8]
+        if !pendingReadChunks.isEmpty {
+            chunk = pendingReadChunks.removeFirst()
+        } else {
+            let next = await queue.dequeue()
+            guard let next else {
+                debugLog("[nextMessages] queue returned nil (finished)")
+                // Mark as disconnected so fetch loops can detect connection loss
+                state = .disconnected
+                return []
+            }
+            chunk = next
         }
         debugLog("[nextMessages] received chunk of \(chunk.count) bytes")
         protocolLogger.logServer(chunk, offset: 0, count: chunk.count)
