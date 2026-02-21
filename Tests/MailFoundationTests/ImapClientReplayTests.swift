@@ -250,6 +250,20 @@ func imapClientResetsUtf8MailboxModeOnDisconnect() {
     #expect(sent == ["A0001 SELECT \(encoded)\r\n"])
 }
 
+@Test("IMAP client waitForTagged honors timeoutMilliseconds")
+func imapClientWaitForTaggedHonorsTimeoutMilliseconds() {
+    let transport = SyncLiteralContinuationTransport()
+    let client = ImapClient()
+    client.connect(transport: transport)
+
+    let started = Date()
+    let response = client.waitForTagged("A9999", maxReads: .max, timeoutMilliseconds: 20)
+    let elapsed = Date().timeIntervalSince(started)
+
+    #expect(response == nil)
+    #expect(elapsed < 0.5)
+}
+
 @Test("IMAP client does not split literal marker text inside quoted command arguments")
 func imapClientDoesNotSplitQuotedLiteralMarkerText() {
     let transport = SyncLiteralContinuationTransport()

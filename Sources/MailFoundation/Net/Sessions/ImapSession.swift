@@ -28,10 +28,13 @@
 // Higher-level synchronous IMAP session helpers.
 //
 
+import Foundation
+
 public final class ImapSession {
     private let client: ImapClient
     private let transport: Transport
     private let maxReads: Int
+    private let timeoutMilliseconds: Int = 120_000
     private var idleTag: String?
     public private(set) var selectedMailbox: String?
     public private(set) var selectedState = ImapSelectedState()
@@ -75,7 +78,8 @@ public final class ImapSession {
         let command = client.send(.capability)
         try ensureWrite()
         var reads = 0
-        while reads < maxReads {
+        let deadline = makeDeadline()
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -97,7 +101,7 @@ public final class ImapSession {
         let initialCapabilitiesVersion = client.capabilitiesVersion
         let command = client.send(.login(user, password))
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
         guard response.isOk else {
@@ -123,7 +127,8 @@ public final class ImapSession {
         try ensureWrite()
 
         var reads = 0
-        while reads < maxReads {
+        let deadline = makeDeadline()
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -219,7 +224,7 @@ public final class ImapSession {
         try ensureIdleNotActive()
         let command = client.send(.noop)
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
         guard response.isOk else {
@@ -235,7 +240,8 @@ public final class ImapSession {
         var enabled: [String] = []
         var sawEnabledResponse = false
         var reads = 0
-        while reads < maxReads {
+        let deadline = makeDeadline()
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -277,9 +283,10 @@ public final class ImapSession {
         let command = client.send(.select(mailbox))
         try ensureWrite()
         var reads = 0
+        let deadline = makeDeadline()
         var nextState = ImapSelectedState()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -307,9 +314,10 @@ public final class ImapSession {
         let command = client.send(.examine(mailbox))
         try ensureWrite()
         var reads = 0
+        let deadline = makeDeadline()
         var nextState = ImapSelectedState()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -336,7 +344,7 @@ public final class ImapSession {
         try ensureSelected()
         let command = client.send(.close)
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
         guard response.isOk else {
@@ -351,7 +359,7 @@ public final class ImapSession {
         try ensureSelected()
         let command = client.send(.check)
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
         guard response.isOk else {
@@ -365,7 +373,8 @@ public final class ImapSession {
         let command = client.send(.expunge)
         try ensureWrite()
         var reads = 0
-        while reads < maxReads {
+        let deadline = makeDeadline()
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -388,7 +397,7 @@ public final class ImapSession {
         try ensureAuthenticated()
         let command = client.send(.create(mailbox))
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
         guard response.isOk else {
@@ -401,7 +410,7 @@ public final class ImapSession {
         try ensureAuthenticated()
         let command = client.send(.delete(mailbox))
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
         guard response.isOk else {
@@ -414,7 +423,7 @@ public final class ImapSession {
         try ensureAuthenticated()
         let command = client.send(.rename(mailbox, newName))
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
         guard response.isOk else {
@@ -427,7 +436,7 @@ public final class ImapSession {
         try ensureAuthenticated()
         let command = client.send(.subscribe(mailbox))
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
         guard response.isOk else {
@@ -440,7 +449,7 @@ public final class ImapSession {
         try ensureAuthenticated()
         let command = client.send(.unsubscribe(mailbox))
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
         guard response.isOk else {
@@ -455,8 +464,9 @@ public final class ImapSession {
         try ensureWrite()
         var result: ImapNamespaceResponse?
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -484,8 +494,9 @@ public final class ImapSession {
         try ensureWrite()
         var result: ImapQuotaResponse?
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -514,8 +525,9 @@ public final class ImapSession {
         var root: ImapQuotaRootResponse?
         var quotas: [ImapQuotaResponse] = []
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -546,8 +558,9 @@ public final class ImapSession {
         try ensureWrite()
         var result: ImapAclResponse?
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -573,7 +586,7 @@ public final class ImapSession {
         try ensureAuthenticated()
         let command = client.send(.setAcl(mailbox, identifier: identifier, rights: rights))
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
         guard response.isOk else {
@@ -588,8 +601,9 @@ public final class ImapSession {
         try ensureWrite()
         var result: ImapListRightsResponse?
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -617,8 +631,9 @@ public final class ImapSession {
         try ensureWrite()
         var result: ImapMyRightsResponse?
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -650,8 +665,9 @@ public final class ImapSession {
         try ensureWrite()
         var result: ImapMetadataResponse?
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -677,7 +693,7 @@ public final class ImapSession {
         try ensureAuthenticated()
         let command = client.send(.setMetadata(mailbox, entries: entries))
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
         guard response.isOk else {
@@ -697,8 +713,9 @@ public final class ImapSession {
         var mailboxName: String?
         var entriesResult: [ImapAnnotationEntry] = []
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -732,7 +749,7 @@ public final class ImapSession {
         try ensureAuthenticated()
         let command = client.send(.setAnnotation(mailbox, entry: entry, attributes: attributes))
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
         guard response.isOk else {
@@ -773,7 +790,8 @@ public final class ImapSession {
         try ensureWrite()
         var responses: [ImapMailboxListResponse] = []
         var reads = 0
-        while reads < maxReads {
+        let deadline = makeDeadline()
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -816,7 +834,8 @@ public final class ImapSession {
         try ensureWrite()
         var responses: [ImapMailboxListResponse] = []
         var reads = 0
-        while reads < maxReads {
+        let deadline = makeDeadline()
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -852,6 +871,7 @@ public final class ImapSession {
         var statusMap: [String: [String: Int]] = [:]
         var seen: Set<String> = []
         var reads = 0
+        let deadline = makeDeadline()
 
         func appendStatus(name: String, mailbox: ImapMailbox, items: [String: Int]) {
             guard !seen.contains(name) else { return }
@@ -859,7 +879,7 @@ public final class ImapSession {
             seen.insert(name)
         }
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -906,8 +926,9 @@ public final class ImapSession {
         try ensureWrite()
         var result = ImapSearchResponse(ids: [], isUid: false)
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -944,8 +965,9 @@ public final class ImapSession {
         try ensureWrite()
         var result = ImapSearchResponse(ids: [], isUid: false)
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -976,8 +998,9 @@ public final class ImapSession {
         try ensureWrite()
         var result = ImapSearchResponse(ids: [], isUid: true)
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1014,8 +1037,9 @@ public final class ImapSession {
         try ensureWrite()
         var result = ImapSearchResponse(ids: [], isUid: true)
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1054,9 +1078,10 @@ public final class ImapSession {
         let command = client.send(.id(ImapId.buildArguments(parameters)))
         try ensureWrite()
         var reads = 0
+        let deadline = makeDeadline()
         var response: ImapIdResponse?
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1084,8 +1109,9 @@ public final class ImapSession {
         let command = client.send(.copy(set, mailbox))
         try ensureWrite()
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1115,8 +1141,9 @@ public final class ImapSession {
         let command = client.send(.uidCopy(set.description, mailbox))
         try ensureWrite()
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1142,8 +1169,9 @@ public final class ImapSession {
         let command = client.send(.move(set, mailbox))
         try ensureWrite()
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1173,8 +1201,9 @@ public final class ImapSession {
         let command = client.send(.uidMove(set.description, mailbox))
         try ensureWrite()
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1213,8 +1242,9 @@ public final class ImapSession {
         var results: [ImapFetchResponse] = []
         var events: [ImapQresyncEvent] = []
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1246,8 +1276,9 @@ public final class ImapSession {
         try ensureWrite()
         var messages: [ImapLiteralMessage] = []
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let batch = client.receiveWithLiterals()
             if batch.isEmpty {
                 reads += 1
@@ -1287,10 +1318,11 @@ public final class ImapSession {
         let command = client.send(.fetch(set, items))
         try ensureWrite()
         var reads = 0
+        let deadline = makeDeadline()
         var messages: [ImapLiteralMessage] = []
         var events: [ImapQresyncEvent] = []
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let batch = client.receiveWithLiterals()
             if batch.isEmpty {
                 reads += 1
@@ -1342,8 +1374,9 @@ public final class ImapSession {
         var results: [ImapFetchResponse] = []
         var events: [ImapQresyncEvent] = []
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1375,8 +1408,9 @@ public final class ImapSession {
         try ensureWrite()
         var messages: [ImapLiteralMessage] = []
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let batch = client.receiveWithLiterals()
             if batch.isEmpty {
                 reads += 1
@@ -1419,8 +1453,9 @@ public final class ImapSession {
         var results: [ImapFetchResponse] = []
         var events: [ImapQresyncEvent] = []
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1461,8 +1496,9 @@ public final class ImapSession {
         try ensureWrite()
         var result: ImapStatusResponse?
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1503,8 +1539,9 @@ public final class ImapSession {
         let command = client.send(.notify(arguments))
         try ensureWrite()
         var reads = 0
+        let deadline = makeDeadline()
 
-        while reads < maxReads {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1547,7 +1584,7 @@ public final class ImapSession {
 
         let command = client.send(.compress(normalized))
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
 
@@ -1571,7 +1608,7 @@ public final class ImapSession {
         let initialCapabilitiesVersion = client.capabilitiesVersion
         let command = client.send(.starttls)
         try ensureWrite()
-        guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
+        guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
             throw SessionError.timeout
         }
         guard response.isOk else {
@@ -1596,7 +1633,8 @@ public final class ImapSession {
         idleTag = command.tag
         try ensureWrite()
         var reads = 0
-        while reads < maxReads {
+        let deadline = makeDeadline()
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1620,8 +1658,9 @@ public final class ImapSession {
         guard client.state == .selected else { return [] }
         let limit = maxReads ?? self.maxReads
         var reads = 0
+        let deadline = makeDeadline()
         var events: [ImapIdleEvent] = []
-        while reads < limit {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: limit) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1648,7 +1687,8 @@ public final class ImapSession {
         client.sendLiteral(Array("DONE\r\n".utf8))
         try ensureWrite()
         var reads = 0
-        while reads < maxReads {
+        let deadline = makeDeadline()
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1673,8 +1713,9 @@ public final class ImapSession {
         guard client.state == .selected else { return [] }
         let limit = maxReads ?? self.maxReads
         var reads = 0
+        let deadline = makeDeadline()
         var events: [ImapQresyncEvent] = []
-        while reads < limit {
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: limit) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1694,7 +1735,8 @@ public final class ImapSession {
 
     private func waitForGreeting() -> ImapResponse? {
         var reads = 0
-        while reads < maxReads {
+        let deadline = makeDeadline()
+        while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -1713,6 +1755,19 @@ public final class ImapSession {
         if !client.lastWriteSucceeded {
             throw SessionError.transportWriteFailed
         }
+    }
+
+    private func makeDeadline() -> Date? {
+        guard timeoutMilliseconds != Int.max else { return nil }
+        return Date().addingTimeInterval(Double(timeoutMilliseconds) / 1000.0)
+    }
+
+    private func canContinueWaiting(reads: Int, deadline: Date?, maxReads: Int) -> Bool {
+        guard reads < maxReads else { return false }
+        if let deadline, Date() >= deadline {
+            return false
+        }
+        return true
     }
 
     private func postAuthenticate() throws {

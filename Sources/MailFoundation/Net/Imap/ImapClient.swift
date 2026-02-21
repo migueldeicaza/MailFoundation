@@ -580,10 +580,18 @@ public final class ImapClient {
     /// - Parameters:
     ///   - tag: The command tag to wait for.
     ///   - maxReads: Maximum number of read attempts.
+    ///   - timeoutMilliseconds: Optional wall-clock timeout. If `nil`, only `maxReads` is used.
     /// - Returns: The tagged response, or `nil` if not received within maxReads attempts.
-    public func waitForTagged(_ tag: String, maxReads: Int = 2400) -> ImapResponse? {
+    public func waitForTagged(_ tag: String, maxReads: Int = 2400, timeoutMilliseconds: Int? = nil) -> ImapResponse? {
         var reads = 0
+        let deadline: Date? = {
+            guard let timeoutMilliseconds, timeoutMilliseconds != Int.max else { return nil }
+            return Date().addingTimeInterval(Double(timeoutMilliseconds) / 1000.0)
+        }()
         while reads < maxReads {
+            if let deadline, Date() >= deadline {
+                return nil
+            }
             let messages = receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
@@ -603,11 +611,20 @@ public final class ImapClient {
     /// Continuation responses ("+") indicate the server is ready for more data,
     /// such as during literal uploads or SASL authentication.
     ///
-    /// - Parameter maxReads: Maximum number of read attempts.
+    /// - Parameters:
+    ///   - maxReads: Maximum number of read attempts.
+    ///   - timeoutMilliseconds: Optional wall-clock timeout. If `nil`, only `maxReads` is used.
     /// - Returns: The continuation response, or `nil` if not received.
-    public func waitForContinuation(maxReads: Int = 2400) -> ImapResponse? {
+    public func waitForContinuation(maxReads: Int = 2400, timeoutMilliseconds: Int? = nil) -> ImapResponse? {
         var reads = 0
+        let deadline: Date? = {
+            guard let timeoutMilliseconds, timeoutMilliseconds != Int.max else { return nil }
+            return Date().addingTimeInterval(Double(timeoutMilliseconds) / 1000.0)
+        }()
         while reads < maxReads {
+            if let deadline, Date() >= deadline {
+                return nil
+            }
             let messages = receiveWithLiterals()
             if messages.isEmpty {
                 reads += 1
