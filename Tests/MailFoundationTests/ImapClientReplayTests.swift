@@ -199,6 +199,20 @@ func imapClientUsesSynchronizedLiteralWithoutCapability() {
     #expect(continuation.first?.kind == .continuation)
 }
 
+@Test("IMAP client does not split literal marker text inside quoted command arguments")
+func imapClientDoesNotSplitQuotedLiteralMarkerText() {
+    let transport = SyncLiteralContinuationTransport()
+    let client = ImapClient()
+    client.connect(transport: transport)
+    _ = client.handleIncomingWithLiterals(Array("* CAPABILITY IMAP4rev1 LITERAL+\r\n".utf8))
+
+    let command = ImapCommand(tag: "A0001", name: "XTEST", arguments: "\"fake {3}\r\nabc text\"")
+    _ = client.send(command)
+
+    let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent == [command.serialized])
+}
+
 @Test("IMAP client uses non-synchronizing literals with LITERAL+ capability")
 func imapClientUsesNonSynchronizingLiteralWithCapability() {
     let transport = SyncLiteralContinuationTransport()
@@ -312,6 +326,25 @@ func asyncImapClientUsesSynchronizedLiteralWithoutCapability() async throws {
 
     let messages = await client.nextMessages()
     #expect(messages.first?.response?.kind == .continuation)
+
+    await client.stop()
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP client does not split literal marker text inside quoted command arguments")
+func asyncImapClientDoesNotSplitQuotedLiteralMarkerText() async throws {
+    let transport = AsyncStreamTransport()
+    let client = AsyncImapClient(transport: transport)
+    try await client.start()
+
+    await transport.yieldIncoming(Array("* CAPABILITY IMAP4rev1 LITERAL+\r\n".utf8))
+    _ = await client.nextMessages()
+
+    let command = ImapCommand(tag: "A0001", name: "XTEST", arguments: "\"fake {3}\r\nabc text\"")
+    _ = try await client.send(command)
+
+    let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent == [command.serialized])
 
     await client.stop()
 }

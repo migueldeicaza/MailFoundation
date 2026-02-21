@@ -42,9 +42,45 @@ enum ImapLiteralCommandParts {
         var cursor = 0
         var segmentStart = 0
         var foundLiteral = false
+        var inQuotedString = false
+        var isEscaped = false
 
         while cursor < bytes.count {
-            guard let markerStart = findByte(0x7B, in: bytes, from: cursor) else { break } // {
+            let byte = bytes[cursor]
+
+            if inQuotedString {
+                if isEscaped {
+                    isEscaped = false
+                    cursor += 1
+                    continue
+                }
+
+                if byte == 0x5C { // \
+                    isEscaped = true
+                    cursor += 1
+                    continue
+                }
+
+                if byte == 0x22 { // "
+                    inQuotedString = false
+                }
+
+                cursor += 1
+                continue
+            }
+
+            if byte == 0x22 { // "
+                inQuotedString = true
+                cursor += 1
+                continue
+            }
+
+            guard byte == 0x7B else { // {
+                cursor += 1
+                continue
+            }
+
+            let markerStart = cursor
             var index = markerStart + 1
             var length = 0
             var foundDigit = false
@@ -85,22 +121,12 @@ enum ImapLiteralCommandParts {
 
             cursor = literalEnd
             segmentStart = literalEnd
+            inQuotedString = false
+            isEscaped = false
         }
 
         guard foundLiteral else { return nil }
         let tail = Array(bytes[segmentStart..<bytes.count])
         return (parts, tail)
-    }
-
-    private static func findByte(_ value: UInt8, in bytes: [UInt8], from start: Int) -> Int? {
-        guard start < bytes.count else { return nil }
-        var index = start
-        while index < bytes.count {
-            if bytes[index] == value {
-                return index
-            }
-            index += 1
-        }
-        return nil
     }
 }
