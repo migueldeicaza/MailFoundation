@@ -110,14 +110,17 @@ private actor ParityAsyncStartTlsTransport: AsyncStartTlsTransport {
 }
 
 struct ImapParityRegressionTests {
-    @Test("IMAP LOGIN serialization escapes CRLF/NUL credentials")
-    func imapLoginSerializationEscapesUnsafeScalars() {
+    @Test("IMAP LOGIN serialization uses literals for CRLF/NUL credentials")
+    func imapLoginSerializationUsesLiteralForUnsafeScalars() {
         let serialized = ImapCommandKind
             .login("user\r\nname", "pa\u{0}\"\\ss")
             .command(tag: "A1")
             .serialized
 
-        #expect(serialized == "A1 LOGIN \"user\\r\\nname\" \"pa\\0\\\"\\\\ss\"\r\n")
+        let expected = Array("A1 LOGIN {10+}\r\nuser\r\nname {7+}\r\npa".utf8) +
+            [0] +
+            Array("\"\\ss\r\n".utf8)
+        #expect(Array(serialized.utf8) == expected)
     }
 
     @Test("Sync IMAP STARTTLS triggers CAPABILITY refresh when unchanged")

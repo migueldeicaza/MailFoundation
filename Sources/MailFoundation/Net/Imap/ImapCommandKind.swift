@@ -61,6 +61,14 @@ private func imapQuote(_ value: String) -> String {
     return result
 }
 
+/// Formats an IMAP literal using non-synchronizing literal syntax.
+///
+/// This mirrors MailKit's behavior when a string cannot be represented as an atom
+/// or quoted string safely.
+private func imapLiteral(_ value: String) -> String {
+    "{\(value.utf8.count)+}\r\n\(value)"
+}
+
 /// Returns true if the scalar is a valid IMAP atom character.
 ///
 /// Mirrors MailKit's atom character rules.
@@ -78,17 +86,27 @@ private func imapIsAtomScalar(_ scalar: Unicode.Scalar) -> Bool {
 
 /// Formats an IMAP astring, quoting when needed.
 ///
-/// This mirrors MailKit's atom/quoted selection (without literal support).
+/// This mirrors MailKit's atom/quoted/literal selection.
 private func imapAString(_ value: String) -> String {
     guard !value.isEmpty else {
         return "\"\""
     }
+
+    var requiresQuoted = false
     for scalar in value.unicodeScalars {
-        if !imapIsAtomScalar(scalar) {
-            return imapQuote(value)
+        if imapIsAtomScalar(scalar) {
+            continue
         }
+
+        // Control or non-ASCII values require literal encoding for wire correctness.
+        if scalar.value >= 0x80 || scalar.value <= 0x1F || scalar.value == 0x7F {
+            return imapLiteral(value)
+        }
+
+        requiresQuoted = true
     }
-    return value
+
+    return requiresQuoted ? imapQuote(value) : value
 }
 
 public enum ImapCommandKind: Sendable {
