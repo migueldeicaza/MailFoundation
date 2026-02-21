@@ -76,7 +76,44 @@ public struct ImapCapabilities: Sendable, Equatable {
     /// - Parameter tokens: The capability tokens from the server response.
     public init(tokens: [String]) {
         self.rawTokens = tokens
-        self.capabilities = Set(tokens.map { $0.uppercased() })
+        let parsed = Set(tokens.map { $0.uppercased() })
+        self.capabilities = Self.standardized(parsed)
+    }
+
+    private static func standardized(_ parsed: Set<String>) -> Set<String> {
+        var result = parsed
+
+        if result.contains("IMAP4REV2") {
+            // RFC 9051 Appendix E implied capabilities (matches MailKit normalization).
+            result.formUnion([
+                "STATUS",
+                "NAMESPACE",
+                "UNSELECT",
+                "UIDPLUS",
+                "ESEARCH",
+                "SEARCHRES",
+                "ENABLE",
+                "IDLE",
+                "SASL-IR",
+                "LIST-EXTENDED",
+                "LIST-STATUS",
+                "MOVE",
+                "LITERAL-",
+                "SPECIAL-USE"
+            ])
+        } else if result.contains("IMAP4REV1") {
+            result.insert("STATUS")
+        }
+
+        if result.contains("QRESYNC") {
+            result.insert("CONDSTORE")
+        }
+
+        if result.contains("UTF8=ONLY") {
+            result.insert("UTF8=ACCEPT")
+        }
+
+        return result
     }
 
     /// Checks if the server supports a specific capability.

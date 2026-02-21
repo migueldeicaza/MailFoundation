@@ -1582,6 +1582,15 @@ func imapCapabilitiesParsing() {
     let previewLine = previewFixture.components(separatedBy: "\r\n").first ?? ""
     let previewCaps = ImapCapabilities.parse(from: previewLine)
     #expect(previewCaps?.supports("PREVIEW") == true)
+
+    let rev2Caps = ImapCapabilities.parse(from: "* CAPABILITY IMAP4rev2")
+    #expect(rev2Caps?.supports("LITERAL-") == true)
+    #expect(rev2Caps?.supports("UIDPLUS") == true)
+    #expect(rev2Caps?.supports("SASL-IR") == true)
+
+    let normalizedCaps = ImapCapabilities.parse(from: "* CAPABILITY IMAP4rev2 QRESYNC UTF8=ONLY")
+    #expect(normalizedCaps?.supports("CONDSTORE") == true)
+    #expect(normalizedCaps?.supports("UTF8=ACCEPT") == true)
 }
 
 @Test("IMAP response parsers")
