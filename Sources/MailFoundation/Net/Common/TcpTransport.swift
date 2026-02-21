@@ -86,8 +86,16 @@ public final class TcpTransport: StartTlsTransport {
         scramChannelBindingCache = nil
     }
 
+    public var isConnected: Bool {
+        updateConnectionStateFromStreams()
+        return isOpen
+    }
+
     public func write(_ bytes: [UInt8]) -> Int {
         guard let output, !bytes.isEmpty else { return 0 }
+        updateConnectionStateFromStreams()
+        guard isOpen else { return 0 }
+
         var totalWritten = 0
         while totalWritten < bytes.count {
             let written = bytes.withUnsafeBytes { pointer -> Int in
@@ -98,6 +106,7 @@ public final class TcpTransport: StartTlsTransport {
                 return output.write(start, maxLength: bytes.count - totalWritten)
             }
             if written <= 0 {
+                updateConnectionStateFromStreams()
                 break
             }
             totalWritten += written
@@ -106,10 +115,22 @@ public final class TcpTransport: StartTlsTransport {
     }
 
     public func readAvailable(maxLength: Int) -> [UInt8] {
-        guard let input, input.hasBytesAvailable else { return [] }
+        updateConnectionStateFromStreams()
+        guard isOpen, let input else { return [] }
+        guard input.hasBytesAvailable else {
+            updateConnectionStateFromStreams()
+            return []
+        }
+
         var buffer = Array(repeating: UInt8(0), count: max(1, maxLength))
         let count = input.read(&buffer, maxLength: buffer.count)
-        guard count > 0 else { return [] }
+        if count <= 0 {
+            updateConnectionStateFromStreams()
+            if count == 0 {
+                isOpen = false
+            }
+            return []
+        }
         return Array(buffer.prefix(count))
     }
 
@@ -130,5 +151,25 @@ public final class TcpTransport: StartTlsTransport {
         let key = Stream.PropertyKey(kCFStreamPropertySSLSettings as String)
         _ = input.setProperty(settings, forKey: key)
         _ = output.setProperty(settings, forKey: key)
+    }
+
+    private func updateConnectionStateFromStreams() {
+        guard isOpen else { return }
+        if let input, isTerminal(status: input.streamStatus) {
+            isOpen = false
+            return
+        }
+        if let output, isTerminal(status: output.streamStatus) {
+            isOpen = false
+        }
+    }
+
+    private func isTerminal(status: Stream.Status) -> Bool {
+        switch status {
+        case .atEnd, .closed, .error:
+            return true
+        default:
+            return false
+        }
     }
 }

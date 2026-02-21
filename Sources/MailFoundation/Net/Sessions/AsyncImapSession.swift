@@ -49,10 +49,6 @@ public actor AsyncImapSession {
         }
     }
 
-    private nonisolated func debugLog(_ message: String) {
-        MailFoundationLogging.debug(.imapSession, message)
-    }
-
     /// The timeout for network operations in milliseconds.
     ///
     /// Default is 120000 (2 minutes), matching MailKit's default.
@@ -105,6 +101,9 @@ public actor AsyncImapSession {
         try await withSessionTimeout {
             try await self.client.start()
             let greeting = await self.waitForGreeting()
+            if greeting == nil, await self.client.isDisconnected {
+                throw SessionError.connectionClosed(message: "Connection closed by server.")
+            }
             return try self.validateGreeting(greeting)
         }
     }
@@ -123,6 +122,9 @@ public actor AsyncImapSession {
         return try await withSessionTimeout {
             try await self.client.startSecure(validateCertificate: validateCertificate)
             let greeting = await self.waitForGreeting()
+            if greeting == nil, await self.client.isDisconnected {
+                throw SessionError.connectionClosed(message: "Connection closed by server.")
+            }
             return try self.validateGreeting(greeting)
         }
     }
@@ -161,12 +163,39 @@ public actor AsyncImapSession {
     /// Authenticates using SASL mechanism
     public func authenticate(_ auth: ImapAuthentication) async throws -> ImapResponse? {
         try await withSessionTimeout {
-            let response = try await self.client.authenticate(auth)
-            if response?.isOk == true {
-                await self.postAuthenticate()
+            do {
+                let response = try await self.client.authenticate(auth)
+                guard let response else {
+                    if await self.client.isDisconnected {
+                        throw SessionError.connectionClosed(message: "Connection closed by server.")
+                    }
+                    try await self.throwTimeoutOrConnectionClosed()
+                }
+                if response.isOk {
+                    await self.postAuthenticate()
+                }
+                return response
+            } catch AsyncTransportError.connectionFailed {
+                throw SessionError.connectionClosed(message: "Connection closed by server.")
             }
-            return response
         }
+    }
+
+    private func throwConnectionClosedIfDisconnected() async throws {
+        if await client.isDisconnected {
+            throw SessionError.connectionClosed(message: "Connection closed by server.")
+        }
+    }
+
+    private func timeoutOrConnectionClosed() async -> SessionError {
+        if await client.isDisconnected {
+            return .connectionClosed(message: "Connection closed by server.")
+        }
+        return .timeout
+    }
+
+    private func throwTimeoutOrConnectionClosed() async throws -> Never {
+        throw await timeoutOrConnectionClosed()
     }
 
     /// Authenticates using XOAUTH2 with an OAuth access token
@@ -249,7 +278,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -346,7 +375,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -354,38 +383,29 @@ public actor AsyncImapSession {
         try await ensureAuthenticated()
         return try await withSessionTimeout {
             let command = try await self.client.send(.select(mailbox))
-            self.debugLog("[select] sent command tag=\(command.tag) for mailbox=\(mailbox)")
             var emptyReads = 0
             var nextState = ImapSelectedState()
 
             while true {
                 try Task.checkCancellation()
-                self.debugLog("[select] calling nextMessages(), emptyReads=\(emptyReads)")
                 let messages = await self.client.nextMessages()
-                self.debugLog("[select] nextMessages() returned \(messages.count) messages")
                 if messages.isEmpty {
                     if await self.client.isDisconnected {
-                        self.debugLog("[select] connection closed")
                         throw SessionError.connectionClosed(message: "Connection closed by server.")
                     }
                     emptyReads += 1
                     if emptyReads > 10 {
-                        self.debugLog("[select] too many empty reads, throwing timeout")
-                        throw SessionError.timeout
+                        try await self.throwTimeoutOrConnectionClosed()
                     }
                     continue
                 }
                 emptyReads = 0
                 for message in messages {
                     await self.applySelectedState(&nextState, mailbox: mailbox, from: message)
-                    self.debugLog("[select] checking message: hasResponse=\(message.response != nil)")
                     if let response = message.response {
-                        self.debugLog("[select] response kind=\(response.kind), looking for tag=\(command.tag)")
                         if case let .tagged(tag) = response.kind {
-                            self.debugLog("[select] found tagged response: tag=\(tag), matches=\(tag == command.tag)")
                             if tag == command.tag {
                                 guard response.isOk else {
-                                    self.debugLog("[select] response is not OK, throwing error")
                                     throw SessionError.imapError(status: response.status, text: response.text)
                                 }
                                 await self.updateSelectedState(mailbox: mailbox, state: nextState)
@@ -432,7 +452,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -477,7 +497,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -507,7 +527,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -536,7 +556,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -565,7 +585,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -594,7 +614,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -623,7 +643,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -652,7 +672,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -729,7 +749,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -788,7 +808,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -857,7 +877,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -898,7 +918,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -947,7 +967,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -984,7 +1004,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1033,7 +1053,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1070,7 +1090,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1108,7 +1128,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1162,7 +1182,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1193,6 +1213,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1211,7 +1232,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1226,6 +1247,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1244,7 +1266,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1260,6 +1282,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1281,7 +1304,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1296,6 +1319,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1314,7 +1338,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1333,6 +1357,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1348,7 +1373,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1367,6 +1392,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1385,7 +1411,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1400,6 +1426,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1418,7 +1445,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1438,6 +1465,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1456,7 +1484,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1474,6 +1502,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1489,7 +1518,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1510,6 +1539,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1530,7 +1560,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1549,6 +1579,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1564,7 +1595,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1579,6 +1610,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1596,7 +1628,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1610,6 +1642,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1626,7 +1659,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1644,6 +1677,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1660,7 +1694,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1674,6 +1708,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1690,7 +1725,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1708,6 +1743,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -1724,7 +1760,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1783,7 +1819,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1827,7 +1863,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1878,7 +1914,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1929,7 +1965,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -1996,7 +2032,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -2040,7 +2076,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -2097,7 +2133,7 @@ public actor AsyncImapSession {
                 }
             }
 
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -2123,6 +2159,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -2140,7 +2177,7 @@ public actor AsyncImapSession {
                     }
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -2160,6 +2197,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -2175,7 +2213,7 @@ public actor AsyncImapSession {
                 }
             }
             await self.setIdleTag(nil)
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -2188,6 +2226,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -2202,7 +2241,7 @@ public actor AsyncImapSession {
                     return events
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -2218,6 +2257,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -2234,7 +2274,7 @@ public actor AsyncImapSession {
                 }
             }
             await self.setIdleTag(nil)
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 
@@ -2251,6 +2291,7 @@ public actor AsyncImapSession {
                 try Task.checkCancellation()
                 let messages = await self.client.nextMessages()
                 if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
                     emptyReads += 1
                     continue
                 }
@@ -2264,7 +2305,7 @@ public actor AsyncImapSession {
                     return events
                 }
             }
-            throw SessionError.timeout
+            try await self.throwTimeoutOrConnectionClosed()
         }
     }
 

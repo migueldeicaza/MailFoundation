@@ -55,7 +55,10 @@ public final class ImapSession {
     public func connect() throws -> ImapResponse {
         client.connect(transport: transport)
         guard let greeting = waitForGreeting() else {
-            throw SessionError.timeout
+            if !transport.isConnected {
+                throw SessionError.connectionClosed(message: "Connection closed by server.")
+            }
+            throw timeoutOrConnectionClosed()
         }
         if greeting.status == .ok || greeting.status == .preauth {
             return greeting
@@ -82,7 +85,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -94,7 +97,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func login(user: String, password: String) throws -> ImapResponse {
@@ -102,7 +105,7 @@ public final class ImapSession {
         let command = client.send(.login(user, password))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
         guard response.isOk else {
             throw SessionError.imapError(status: response.status, text: response.text)
@@ -131,7 +134,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -170,7 +173,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     /// Authenticates using XOAUTH2 with an OAuth access token.
@@ -225,7 +228,7 @@ public final class ImapSession {
         let command = client.send(.noop)
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
         guard response.isOk else {
             throw SessionError.imapError(status: response.status, text: response.text)
@@ -244,7 +247,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -275,7 +278,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func select(mailbox: String) throws -> ImapResponse {
@@ -289,7 +292,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
 
@@ -306,7 +309,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func examine(mailbox: String) throws -> ImapResponse {
@@ -320,7 +323,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
 
@@ -337,7 +340,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func close() throws -> ImapResponse {
@@ -345,7 +348,7 @@ public final class ImapSession {
         let command = client.send(.close)
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
         guard response.isOk else {
             throw SessionError.imapError(status: response.status, text: response.text)
@@ -360,7 +363,7 @@ public final class ImapSession {
         let command = client.send(.check)
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
         guard response.isOk else {
             throw SessionError.imapError(status: response.status, text: response.text)
@@ -377,7 +380,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -390,7 +393,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func create(mailbox: String) throws -> ImapResponse {
@@ -398,7 +401,7 @@ public final class ImapSession {
         let command = client.send(.create(mailbox))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
         guard response.isOk else {
             throw SessionError.imapError(status: response.status, text: response.text)
@@ -411,7 +414,7 @@ public final class ImapSession {
         let command = client.send(.delete(mailbox))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
         guard response.isOk else {
             throw SessionError.imapError(status: response.status, text: response.text)
@@ -424,7 +427,7 @@ public final class ImapSession {
         let command = client.send(.rename(mailbox, newName))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
         guard response.isOk else {
             throw SessionError.imapError(status: response.status, text: response.text)
@@ -437,7 +440,7 @@ public final class ImapSession {
         let command = client.send(.subscribe(mailbox))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
         guard response.isOk else {
             throw SessionError.imapError(status: response.status, text: response.text)
@@ -450,7 +453,7 @@ public final class ImapSession {
         let command = client.send(.unsubscribe(mailbox))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
         guard response.isOk else {
             throw SessionError.imapError(status: response.status, text: response.text)
@@ -469,7 +472,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -485,7 +488,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func getQuota(_ root: String) throws -> ImapQuotaResponse? {
@@ -499,7 +502,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -515,7 +518,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func getQuotaRoot(_ mailbox: String) throws -> ImapQuotaRootResult {
@@ -530,7 +533,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -549,7 +552,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func getAcl(mailbox: String) throws -> ImapAclResponse? {
@@ -563,7 +566,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -579,7 +582,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func setAcl(mailbox: String, identifier: String, rights: String) throws -> ImapResponse {
@@ -587,7 +590,7 @@ public final class ImapSession {
         let command = client.send(.setAcl(mailbox, identifier: identifier, rights: rights))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
         guard response.isOk else {
             throw SessionError.imapError(status: response.status, text: response.text)
@@ -606,7 +609,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -622,7 +625,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func myRights(mailbox: String) throws -> ImapMyRightsResponse? {
@@ -636,7 +639,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -652,7 +655,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func getMetadata(
@@ -670,7 +673,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -686,7 +689,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func setMetadata(mailbox: String, entries: [ImapMetadataEntry]) throws -> ImapResponse {
@@ -694,7 +697,7 @@ public final class ImapSession {
         let command = client.send(.setMetadata(mailbox, entries: entries))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
         guard response.isOk else {
             throw SessionError.imapError(status: response.status, text: response.text)
@@ -718,7 +721,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -738,7 +741,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func setAnnotation(
@@ -750,7 +753,7 @@ public final class ImapSession {
         let command = client.send(.setAnnotation(mailbox, entry: entry, attributes: attributes))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
         guard response.isOk else {
             throw SessionError.imapError(status: response.status, text: response.text)
@@ -794,7 +797,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -810,7 +813,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     private func listSpecialUse(reference: String, mailbox: String) throws -> [ImapMailbox] {
@@ -838,7 +841,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -854,7 +857,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func listStatus(
@@ -882,7 +885,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -917,7 +920,7 @@ public final class ImapSession {
                 }
             }
         }
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func search(_ criteria: String) throws -> ImapSearchResponse {
@@ -931,7 +934,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
 
@@ -950,7 +953,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func search(_ query: SearchQuery) throws -> ImapSearchResponse {
@@ -970,7 +973,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
 
@@ -989,7 +992,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func uidSearch(_ criteria: String) throws -> ImapSearchResponse {
@@ -1003,7 +1006,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
 
@@ -1022,7 +1025,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func uidSearch(_ query: SearchQuery) throws -> ImapSearchResponse {
@@ -1042,7 +1045,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
 
@@ -1061,7 +1064,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func fetch(_ set: String, items: String) throws -> [ImapFetchResponse] {
@@ -1084,7 +1087,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
 
@@ -1101,7 +1104,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func copy(_ set: String, to mailbox: String) throws -> ImapCopyResult {
@@ -1114,7 +1117,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -1129,7 +1132,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func copy(_ set: SequenceSet, to mailbox: String) throws -> ImapCopyResult {
@@ -1146,7 +1149,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -1161,7 +1164,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func move(_ set: String, to mailbox: String) throws -> ImapCopyResult {
@@ -1174,7 +1177,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -1189,7 +1192,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func move(_ set: SequenceSet, to mailbox: String) throws -> ImapCopyResult {
@@ -1206,7 +1209,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -1221,7 +1224,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func fetchSummaries(_ set: String, request: FetchRequest, previewLength: Int = 512) throws -> [MessageSummary] {
@@ -1247,7 +1250,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
 
@@ -1267,7 +1270,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func fetchSummariesWithQresync(_ set: String, items: String, parseBodies: Bool) throws -> [MessageSummary] {
@@ -1281,7 +1284,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let batch = client.receiveWithLiterals()
             if batch.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             messages.append(contentsOf: batch)
@@ -1301,7 +1304,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func fetchBodySections(_ set: String, items: String) throws -> [ImapFetchBodyMap] {
@@ -1325,7 +1328,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let batch = client.receiveWithLiterals()
             if batch.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
 
@@ -1344,7 +1347,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func uidFetch(_ set: UniqueIdSet, items: String) throws -> [ImapFetchResponse] {
@@ -1379,7 +1382,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
 
@@ -1399,7 +1402,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func uidFetchSummariesWithQresync(_ set: UniqueIdSet, items: String, parseBodies: Bool) throws -> [MessageSummary] {
@@ -1413,7 +1416,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let batch = client.receiveWithLiterals()
             if batch.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             messages.append(contentsOf: batch)
@@ -1433,7 +1436,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func uidStore(_ set: UniqueIdSet, data: String) throws -> [ImapFetchResponse] {
@@ -1458,7 +1461,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
 
@@ -1478,7 +1481,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func fetchAttributes(_ set: String, items: String) throws -> [ImapFetchAttributes] {
@@ -1501,7 +1504,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
 
@@ -1525,7 +1528,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func notify(arguments: String) throws -> ImapResponse {
@@ -1544,7 +1547,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
 
@@ -1559,7 +1562,7 @@ public final class ImapSession {
             }
         }
 
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func compress(algorithm: String = "DEFLATE") throws -> ImapResponse {
@@ -1585,7 +1588,7 @@ public final class ImapSession {
         let command = client.send(.compress(normalized))
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
 
         if response.isOk {
@@ -1609,7 +1612,7 @@ public final class ImapSession {
         let command = client.send(.starttls)
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads, timeoutMilliseconds: timeoutMilliseconds) else {
-            throw SessionError.timeout
+            throw timeoutOrConnectionClosed()
         }
         guard response.isOk else {
             throw SessionError.imapError(status: response.status, text: response.text)
@@ -1637,7 +1640,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -1651,7 +1654,7 @@ public final class ImapSession {
             }
         }
         idleTag = nil
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func readIdleEvents(maxReads: Int? = nil) -> [ImapIdleEvent] {
@@ -1691,7 +1694,7 @@ public final class ImapSession {
         while canContinueWaiting(reads: reads, deadline: deadline, maxReads: maxReads) {
             let messages = client.receiveWithLiterals()
             if messages.isEmpty {
-                reads += 1
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
                 continue
             }
             for message in messages {
@@ -1706,7 +1709,7 @@ public final class ImapSession {
             }
         }
         self.idleTag = nil
-        throw SessionError.timeout
+        throw timeoutOrConnectionClosed()
     }
 
     public func readQresyncEvents(validity: UInt32 = 0, maxReads: Int? = nil) -> [ImapQresyncEvent] {
@@ -1755,6 +1758,20 @@ public final class ImapSession {
         if !client.lastWriteSucceeded {
             throw SessionError.transportWriteFailed
         }
+    }
+
+    private func timeoutOrConnectionClosed() -> SessionError {
+        if !transport.isConnected {
+            return .connectionClosed(message: "Connection closed by server.")
+        }
+        return .timeout
+    }
+
+    private func recordEmptyReadOrThrowConnectionClosed(_ reads: inout Int) throws {
+        if !transport.isConnected {
+            throw SessionError.connectionClosed(message: "Connection closed by server.")
+        }
+        reads += 1
     }
 
     private func makeDeadline() -> Date? {

@@ -65,6 +65,11 @@ let transport = try await AsyncTransportFactory.make(
 | `.socket` | POSIX sockets + OpenSSL | macOS, Linux |
 | `.network` | Network.framework | Apple platforms |
 
+### Connection State
+
+Synchronous transports now expose connection liveness via ``Transport/isConnected``.
+Session-level IMAP commands use this to surface `SessionError.connectionClosed` when a socket closes mid-command, instead of timing out after empty-read polling.
+
 ## TLS Configuration
 
 ### Basic TLS

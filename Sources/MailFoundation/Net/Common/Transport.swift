@@ -68,6 +68,12 @@ public protocol Transport: AnyObject {
     /// It is safe to call this method multiple times.
     func close()
 
+    /// Whether the transport connection is currently alive.
+    ///
+    /// Implementations should return `false` once the underlying connection has
+    /// been closed by either peer or entered an unrecoverable error state.
+    var isConnected: Bool { get }
+
     /// Writes data to the transport.
     ///
     /// This method attempts to write all provided bytes to the transport.
@@ -87,6 +93,10 @@ public protocol Transport: AnyObject {
     /// - Parameter maxLength: The maximum number of bytes to read.
     /// - Returns: The data read, or an empty array if no data is available.
     func readAvailable(maxLength: Int) -> [UInt8]
+}
+
+public extension Transport {
+    var isConnected: Bool { true }
 }
 
 // MARK: - StartTlsTransport Protocol
@@ -214,6 +224,11 @@ public final class StreamTransport: Transport {
         output.close()
     }
 
+    public var isConnected: Bool {
+        updateConnectionStateFromStreams()
+        return isOpen
+    }
+
     /// Writes data to the output stream.
     ///
     /// This method attempts to write all provided bytes, looping
@@ -223,6 +238,9 @@ public final class StreamTransport: Transport {
     /// - Returns: The total number of bytes written.
     public func write(_ bytes: [UInt8]) -> Int {
         guard !bytes.isEmpty else { return 0 }
+        updateConnectionStateFromStreams()
+        guard isOpen else { return 0 }
+
         var totalWritten = 0
         while totalWritten < bytes.count {
             let written = bytes.withUnsafeBytes { pointer -> Int in
@@ -234,6 +252,7 @@ public final class StreamTransport: Transport {
             }
 
             if written <= 0 {
+                updateConnectionStateFromStreams()
                 break
             }
             totalWritten += written
@@ -248,10 +267,38 @@ public final class StreamTransport: Transport {
     /// - Parameter maxLength: The maximum number of bytes to read (default: 4096).
     /// - Returns: The data read, or an empty array if no data is available.
     public func readAvailable(maxLength: Int = 4096) -> [UInt8] {
-        guard input.hasBytesAvailable else { return [] }
+        updateConnectionStateFromStreams()
+        guard isOpen else { return [] }
+        guard input.hasBytesAvailable else {
+            updateConnectionStateFromStreams()
+            return []
+        }
+
         var buffer = Array(repeating: UInt8(0), count: max(1, maxLength))
         let count = input.read(&buffer, maxLength: buffer.count)
-        guard count > 0 else { return [] }
+        if count <= 0 {
+            updateConnectionStateFromStreams()
+            if count == 0 {
+                isOpen = false
+            }
+            return []
+        }
         return Array(buffer.prefix(count))
+    }
+
+    private func updateConnectionStateFromStreams() {
+        guard isOpen else { return }
+        if isTerminal(status: input.streamStatus) || isTerminal(status: output.streamStatus) {
+            isOpen = false
+        }
+    }
+
+    private func isTerminal(status: Stream.Status) -> Bool {
+        switch status {
+        case .atEnd, .closed, .error:
+            return true
+        default:
+            return false
+        }
     }
 }

@@ -28,6 +28,7 @@ import Testing
 private class ParitySyncTransport: Transport {
     var incoming: [[UInt8]]
     var written: [[UInt8]] = []
+    var isConnected: Bool { true }
 
     init(incoming: [[UInt8]] = []) {
         self.incoming = incoming
@@ -53,6 +54,28 @@ private final class ParitySyncStartTlsTransport: ParitySyncTransport, StartTlsTr
 
     func startTLS(validateCertificate: Bool) {
         startTlsValidations.append(validateCertificate)
+    }
+}
+
+private final class ParitySyncDisconnectingTransport: ParitySyncTransport {
+    private var connected = true
+    override var isConnected: Bool { connected }
+
+    override func open() {
+        connected = true
+    }
+
+    override func close() {
+        connected = false
+    }
+
+    override func readAvailable(maxLength: Int) -> [UInt8] {
+        guard connected else { return [] }
+        guard !incoming.isEmpty else {
+            connected = false
+            return []
+        }
+        return incoming.removeFirst()
     }
 }
 
@@ -230,6 +253,57 @@ struct ImapParityRegressionTests {
         #expect(sent == ["A0001 LOGIN user pass\r\n", "A0002 SELECT INBOX\r\n"])
     }
 
+    @Test("Sync IMAP fetch surfaces connection closed when transport drops")
+    func syncImapFetchDropThrowsConnectionClosed() throws {
+        let transport = ParitySyncDisconnectingTransport(incoming: [
+            Array("* OK Ready\r\n".utf8),
+            ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1"]),
+            Array("* 1 EXISTS\r\n".utf8),
+            Array("A0002 OK [READ-WRITE] SELECT completed\r\n".utf8),
+            Array("* 1 FETCH (UID 1 FLAGS (\\Seen))\r\n".utf8)
+        ])
+        let session = ImapSession(transport: transport, maxReads: 8)
+        _ = try session.connect()
+        _ = try session.login(user: "user", password: "pass")
+        _ = try session.select(mailbox: "INBOX")
+
+        do {
+            _ = try session.fetchWithQresync("1", items: "(UID FLAGS)")
+            #expect(Bool(false), "FETCH should fail when the transport disconnects before tagged completion")
+        } catch let error as SessionError {
+            if case .connectionClosed(let message) = error {
+                #expect(message == "Connection closed by server.")
+            } else {
+                #expect(Bool(false), "Unexpected SessionError: \(error)")
+            }
+        }
+    }
+
+    @Test("Sync IMAP IDLE start surfaces connection closed when transport drops")
+    func syncImapStartIdleDropThrowsConnectionClosed() throws {
+        let transport = ParitySyncDisconnectingTransport(incoming: [
+            Array("* OK Ready\r\n".utf8),
+            ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1", "IDLE"]),
+            Array("* 1 EXISTS\r\n".utf8),
+            Array("A0002 OK [READ-WRITE] SELECT completed\r\n".utf8)
+        ])
+        let session = ImapSession(transport: transport, maxReads: 8)
+        _ = try session.connect()
+        _ = try session.login(user: "user", password: "pass")
+        _ = try session.select(mailbox: "INBOX")
+
+        do {
+            _ = try session.startIdle()
+            #expect(Bool(false), "IDLE should fail when the transport disconnects before continuation")
+        } catch let error as SessionError {
+            if case .connectionClosed(let message) = error {
+                #expect(message == "Connection closed by server.")
+            } else {
+                #expect(Bool(false), "Unexpected SessionError: \(error)")
+            }
+        }
+    }
+
     @available(macOS 10.15, iOS 13.0, *)
     @Test("Async IMAP connect rejects BYE greeting")
     func asyncImapConnectRejectsByeGreeting() async throws {
@@ -378,5 +452,40 @@ struct ImapParityRegressionTests {
 
         let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
         #expect(sent == ["A0001 LOGIN user pass\r\n", "A0002 SELECT INBOX\r\n"])
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    @Test("Async IMAP IDLE start surfaces connection closed when transport drops")
+    func asyncImapStartIdleDropThrowsConnectionClosed() async throws {
+        let transport = AsyncStreamTransport()
+        let session = AsyncImapSession(transport: transport)
+
+        let connectTask = Task { try await session.connect() }
+        await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+        _ = try await connectTask.value
+
+        let loginTask = Task { try await session.login(user: "user", password: "pass") }
+        await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1", "IDLE"]))
+        _ = try await loginTask.value
+
+        let selectTask = Task { try await session.select(mailbox: "INBOX") }
+        await transport.yieldIncoming(Array("* 1 EXISTS\r\n".utf8))
+        await transport.yieldIncoming(Array("A0002 OK SELECT completed\r\n".utf8))
+        _ = try await selectTask.value
+
+        let idleTask = Task { try await session.startIdle(maxEmptyReads: 1_000) }
+        try await Task.sleep(nanoseconds: 10_000_000)
+        await transport.stop()
+
+        do {
+            _ = try await idleTask.value
+            #expect(Bool(false), "IDLE should fail when the transport disconnects before continuation")
+        } catch let error as SessionError {
+            if case .connectionClosed(let message) = error {
+                #expect(message == "Connection closed by server.")
+            } else {
+                #expect(Bool(false), "Unexpected SessionError: \(error)")
+            }
+        }
     }
 }

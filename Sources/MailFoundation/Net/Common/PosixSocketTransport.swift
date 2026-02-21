@@ -58,19 +58,15 @@ public final class PosixSocketTransport: Transport {
 
     public func close() {
         guard isOpen else { return }
-        isOpen = false
-        if socketFD >= 0 {
-            #if canImport(Darwin)
-            _ = Darwin.close(socketFD)
-            #else
-            _ = Glibc.close(socketFD)
-            #endif
-            socketFD = -1
-        }
+        markDisconnected()
+    }
+
+    public var isConnected: Bool {
+        isOpen && socketFD >= 0
     }
 
     public func write(_ bytes: [UInt8]) -> Int {
-        guard socketFD >= 0, !bytes.isEmpty else { return 0 }
+        guard isConnected, !bytes.isEmpty else { return 0 }
         var total = 0
         while total < bytes.count {
             let written = bytes.withUnsafeBytes { pointer -> Int in
@@ -90,6 +86,7 @@ public final class PosixSocketTransport: Transport {
             }
 
             if written == 0 {
+                markDisconnected()
                 break
             }
 
@@ -98,13 +95,14 @@ public final class PosixSocketTransport: Transport {
             #elseif canImport(Darwin)
             if errno == EINTR { continue }
             #endif
+            markDisconnected()
             break
         }
         return total
     }
 
     public func readAvailable(maxLength: Int = 4096) -> [UInt8] {
-        guard socketFD >= 0 else { return [] }
+        guard isConnected else { return [] }
         let length = max(1, max(maxLength, bufferSize))
         var buffer = Array(repeating: UInt8(0), count: length)
         let bufferCount = buffer.count
@@ -119,14 +117,31 @@ public final class PosixSocketTransport: Transport {
             #endif
         }
         guard count > 0 else {
+            if count == 0 {
+                markDisconnected()
+                return []
+            }
             #if canImport(Glibc)
             if count < 0, (errno == EAGAIN || errno == EWOULDBLOCK) { return [] }
             #elseif canImport(Darwin)
             if count < 0, (errno == EAGAIN || errno == EWOULDBLOCK) { return [] }
             #endif
+            markDisconnected()
             return []
         }
         return Array(buffer.prefix(count))
+    }
+
+    private func markDisconnected() {
+        if socketFD >= 0 {
+            #if canImport(Darwin)
+            _ = Darwin.close(socketFD)
+            #else
+            _ = Glibc.close(socketFD)
+            #endif
+            socketFD = -1
+        }
+        isOpen = false
     }
 
     private func openSocket() -> Int32 {

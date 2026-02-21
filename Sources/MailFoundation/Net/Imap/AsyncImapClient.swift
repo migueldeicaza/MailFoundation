@@ -477,7 +477,7 @@ public actor AsyncImapClient {
             while true {
                 let messages = await nextMessages()
                 if messages.isEmpty {
-                    return nil
+                    throw AsyncTransportError.connectionFailed
                 }
                 for message in messages {
                     if let response = message.response {
@@ -519,6 +519,9 @@ public actor AsyncImapClient {
 
         // No responder - just wait for tagged response
         let response = await waitForTagged(command.tag)
+        if response == nil {
+            throw AsyncTransportError.connectionFailed
+        }
         if response?.status == .ok {
             state = .authenticated
         } else if response != nil {
