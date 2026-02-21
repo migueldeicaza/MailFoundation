@@ -410,8 +410,47 @@ try session.stopIdle()
 ``SessionError/idleNotSupported`` when the server does not advertise it.
 Selected-mailbox untagged updates received while other commands run are buffered;
 `readIdleEvents()` and `readQresyncEvents()` drain that buffered state first.
-IMAP session commands are serialized; issuing a second command before the first
-completes queues that command until the active command finishes.
+Most IMAP session commands are serialized; issuing a second command before the
+first completes queues that command until the active command finishes.
+
+## IMAP Pipelining
+
+For async incremental scheduling, use ``AsyncImapSession/execute(_:maxEmptyReads:)``.
+Concurrent pipeline-safe calls automatically join the same in-flight pipeline:
+
+```swift
+async let search = session.execute(.uidSearch("UNSEEN"))
+async let noop = session.execute(.noop)
+
+let searchResult = try await search
+let noopResult = try await noop
+print(searchResult.tag, noopResult.tag)
+```
+
+Use ``AsyncImapSession/waitForPipelineDrained()`` when you need an explicit
+barrier before issuing non-pipelined work.
+
+## IMAP Pipelining (Advanced)
+
+For explicit in-flight pipelining, use ``ImapSession/pipeline(_:maxReads:)`` or
+``AsyncImapSession/pipeline(_:maxEmptyReads:)``. These APIs send multiple
+commands first, then collect per-command results by command tag:
+
+```swift
+let results = try session.pipeline([
+    .uidSearch("UNSEEN"),
+    .noop
+])
+
+for result in results {
+    print("Tag: \(result.tag), status: \(result.response.status)")
+}
+```
+
+Avoid continuation-driven commands in `pipeline` (for example `IDLE`/`DONE`
+and `AUTHENTICATE`), because those commands require interactive flows.
+The caller is responsible for selecting command mixes that the target server
+supports when pipelining.
 
 ## QRESYNC - Efficient Synchronization
 

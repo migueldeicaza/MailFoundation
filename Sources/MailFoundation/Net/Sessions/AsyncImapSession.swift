@@ -39,16 +39,37 @@ private enum AsyncImapSessionCommandContext {
 
 @available(macOS 10.15, iOS 13.0, *)
 public actor AsyncImapSession {
+    private enum CommandAccessMode {
+        case exclusive
+        case pipeline
+    }
+
     private struct QueuedCommandWaiter {
-        let token: UUID
-        let continuation: CheckedContinuation<Void, Never>
+        let id: UUID
+        let mode: CommandAccessMode
+        let continuation: CheckedContinuation<UUID, Error>
+    }
+
+    private struct AutoPipelineRequest {
+        let id: UUID
+        let kind: ImapCommandKind
+        let maxEmptyReads: Int
+        let continuation: CheckedContinuation<ImapPipelineResult, Error>
+        var tag: String?
+        var messages: [ImapLiteralMessage]
     }
 
     private let client: AsyncImapClient
     private let transport: AsyncTransport
     private var idleTag: String?
     private var activeCommandToken: UUID?
+    private var activeCommandMode: CommandAccessMode?
+    private var activeCommandHolders = 0
     private var queuedCommandWaiters: [QueuedCommandWaiter] = []
+    private var autoPipelineOrder: [UUID] = []
+    private var autoPipelineRequests: [UUID: AutoPipelineRequest] = [:]
+    private var autoPipelineTagMap: [String: UUID] = [:]
+    private var autoPipelineDriverTask: Task<Void, Never>?
     private var pendingIdleEvents: [ImapIdleEvent] = []
     private var pendingQresyncEvents: [ImapQresyncEvent] = []
     public private(set) var selectedMailbox: String?
@@ -143,6 +164,9 @@ public actor AsyncImapSession {
     }
 
     public func disconnect() async {
+        failAllAutoPipelineRequests(with: SessionError.connectionClosed(message: "Connection closed by server."))
+        autoPipelineDriverTask?.cancel()
+        autoPipelineDriverTask = nil
         _ = try? await client.logout()
         await client.stop()
         selectedMailbox = nil
@@ -152,6 +176,10 @@ public actor AsyncImapSession {
         namespaces = nil
         specialUseMailboxes = []
         idleTag = nil
+        activeCommandToken = nil
+        activeCommandMode = nil
+        activeCommandHolders = 0
+        queuedCommandWaiters = []
     }
 
     public func capability() async throws -> ImapResponse? {
@@ -298,25 +326,38 @@ public actor AsyncImapSession {
     }
 
     private func withSessionTimeout<T: Sendable>(_ operation: @Sendable @escaping () async throws -> T) async throws -> T {
-        try await withSerializedCommand {
+        try await withCommandAccess(mode: .exclusive) {
             try await withTimeout(milliseconds: self.timeoutMilliseconds, operation: operation)
         }
     }
 
-    private func withSerializedCommand<T: Sendable>(
+    private func withPipelinedCommand<T: Sendable>(
+        _ operation: @Sendable @escaping () async throws -> T
+    ) async throws -> T {
+        try await withCommandAccess(mode: .pipeline, operation)
+    }
+
+    private func withCommandAccess<T: Sendable>(
+        mode: CommandAccessMode,
         _ operation: @Sendable @escaping () async throws -> T
     ) async throws -> T {
         if let taskToken = AsyncImapSessionCommandContext.token, activeCommandToken == taskToken {
             return try await operation()
         }
 
-        let token = UUID()
-        if activeCommandToken == nil, queuedCommandWaiters.isEmpty {
-            activeCommandToken = token
-        } else {
-            await withCheckedContinuation { continuation in
-                queuedCommandWaiters.append(QueuedCommandWaiter(token: token, continuation: continuation))
+        let token: UUID
+        if let activeToken = activeCommandToken {
+            if activeCommandMode == .pipeline && mode == .pipeline {
+                activeCommandHolders += 1
+                token = activeToken
+            } else {
+                token = try await waitForQueuedCommandToken(mode: mode)
             }
+        } else {
+            token = UUID()
+            activeCommandToken = token
+            activeCommandMode = mode
+            activeCommandHolders = 1
         }
 
         defer {
@@ -328,16 +369,55 @@ public actor AsyncImapSession {
         }
     }
 
+    private func waitForQueuedCommandToken(mode: CommandAccessMode) async throws -> UUID {
+        let waiterID = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UUID, Error>) in
+                queuedCommandWaiters.append(QueuedCommandWaiter(id: waiterID, mode: mode, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelQueuedCommandWaiter(waiterID) }
+        }
+    }
+
+    private func cancelQueuedCommandWaiter(_ waiterID: UUID) {
+        guard let index = queuedCommandWaiters.firstIndex(where: { $0.id == waiterID }) else { return }
+        let waiter = queuedCommandWaiters.remove(at: index)
+        waiter.continuation.resume(throwing: CancellationError())
+        if activeCommandToken == nil {
+            grantQueuedCommandWaiters()
+        }
+    }
+
     private func releaseCommandToken(_ token: UUID) {
         guard activeCommandToken == token else { return }
-        if queuedCommandWaiters.isEmpty {
-            activeCommandToken = nil
-            return
-        }
+        activeCommandHolders = max(0, activeCommandHolders - 1)
+        guard activeCommandHolders == 0 else { return }
 
-        let next = queuedCommandWaiters.removeFirst()
-        activeCommandToken = next.token
-        next.continuation.resume()
+        activeCommandToken = nil
+        activeCommandMode = nil
+        grantQueuedCommandWaiters()
+    }
+
+    private func grantQueuedCommandWaiters() {
+        guard activeCommandToken == nil, !queuedCommandWaiters.isEmpty else { return }
+        let mode = queuedCommandWaiters[0].mode
+        let token = UUID()
+        activeCommandToken = token
+        activeCommandMode = mode
+        activeCommandHolders = 0
+
+        if mode == .pipeline {
+            while !queuedCommandWaiters.isEmpty, queuedCommandWaiters[0].mode == .pipeline {
+                let waiter = queuedCommandWaiters.removeFirst()
+                activeCommandHolders += 1
+                waiter.continuation.resume(returning: token)
+            }
+        } else {
+            let waiter = queuedCommandWaiters.removeFirst()
+            activeCommandHolders = 1
+            waiter.continuation.resume(returning: token)
+        }
     }
 
     private func postAuthenticate() async {
@@ -941,6 +1021,112 @@ public actor AsyncImapSession {
 
     public func capabilities() async -> ImapCapabilities? {
         await client.capabilities
+    }
+
+    /// Executes a single command and automatically joins the current in-flight pipeline
+    /// when the command is pipeline-safe.
+    ///
+    /// If no compatible pipeline is active, this starts one.
+    /// Untagged responses are routed to the oldest pending command in that pipeline.
+    ///
+    /// - Important: Commands that require interactive continuations (for example
+    ///   `IDLE` and `AUTHENTICATE`) are rejected.
+    /// - Important: The caller is responsible for choosing command mixes that the
+    ///   target server supports for pipelining.
+    public func execute(_ kind: ImapCommandKind, maxEmptyReads: Int = 10) async throws -> ImapPipelineResult {
+        try await ensureIdleNotActive()
+        try validatePipelineCommand(kind)
+        return try await withPipelinedCommand {
+            try await self.enqueueAutoPipelineCommand(kind, maxEmptyReads: maxEmptyReads)
+        }
+    }
+
+    /// Waits until the currently active auto-pipelined command set has drained.
+    ///
+    /// This is useful when callers issue multiple concurrent `execute(...)` calls
+    /// and need a synchronization point before issuing non-pipeline work.
+    ///
+    /// - Throws: ``SessionError/timeout`` or ``SessionError/connectionClosed(message:)``
+    ///   if the wait exceeds the session timeout or the connection closes.
+    public func waitForPipelineDrained() async throws {
+        try await withTimeout(milliseconds: timeoutMilliseconds) {
+            try await self.withCommandAccess(mode: .exclusive) {}
+        }
+    }
+
+    /// Sends multiple commands without waiting between writes, then routes responses per command tag.
+    ///
+    /// The returned array preserves command send order.
+    /// Untagged responses are routed to the oldest command that is still pending.
+    ///
+    /// - Important: Avoid commands that require explicit continuation handshakes (for example `IDLE`/`DONE`).
+    /// - Important: The caller is responsible for choosing command mixes that the
+    ///   target server supports for pipelining.
+    public func pipeline(_ kinds: [ImapCommandKind], maxEmptyReads: Int = 10) async throws -> [ImapPipelineResult] {
+        try await ensureIdleNotActive()
+        guard !kinds.isEmpty else { return [] }
+
+        return try await withSessionTimeout {
+            var tagsInOrder: [String] = []
+            var pendingTags: Set<String> = []
+            var messagesByTag: [String: [ImapLiteralMessage]] = [:]
+            var responseByTag: [String: ImapResponse] = [:]
+
+            for kind in kinds {
+                try self.validatePipelineCommand(kind)
+                let command = try await self.client.send(kind)
+                tagsInOrder.append(command.tag)
+                pendingTags.insert(command.tag)
+                messagesByTag[command.tag] = []
+            }
+
+            var emptyReads = 0
+            while !pendingTags.isEmpty && emptyReads < maxEmptyReads {
+                try Task.checkCancellation()
+                let messages = await self.client.nextMessages()
+                if messages.isEmpty {
+                    try await self.throwConnectionClosedIfDisconnected()
+                    emptyReads += 1
+                    continue
+                }
+                emptyReads = 0
+
+                for message in messages {
+                    _ = await self.ingestSelectedState(from: message)
+
+                    if let response = message.response,
+                       case let .tagged(tag) = response.kind,
+                       pendingTags.contains(tag) {
+                        messagesByTag[tag, default: []].append(message)
+                        responseByTag[tag] = response
+                        pendingTags.remove(tag)
+                        continue
+                    }
+
+                    if let ownerTag = tagsInOrder.first(where: { pendingTags.contains($0) }) {
+                        messagesByTag[ownerTag, default: []].append(message)
+                    }
+                }
+            }
+
+            if !pendingTags.isEmpty {
+                try await self.throwTimeoutOrConnectionClosed()
+            }
+
+            var results: [ImapPipelineResult] = []
+            results.reserveCapacity(tagsInOrder.count)
+            for tag in tagsInOrder {
+                guard let response = responseByTag[tag] else {
+                    throw SessionError.timeout
+                }
+                results.append(ImapPipelineResult(
+                    tag: tag,
+                    response: response,
+                    messages: messagesByTag[tag] ?? []
+                ))
+            }
+            return results
+        }
     }
 
     public func search(_ criteria: String, maxEmptyReads: Int = 10) async throws -> ImapSearchResponse {
@@ -2376,6 +2562,119 @@ public actor AsyncImapSession {
         }
     }
 
+    private func enqueueAutoPipelineCommand(_ kind: ImapCommandKind, maxEmptyReads: Int) async throws -> ImapPipelineResult {
+        try await withCheckedThrowingContinuation { continuation in
+            let requestID = UUID()
+            autoPipelineOrder.append(requestID)
+            autoPipelineRequests[requestID] = AutoPipelineRequest(
+                id: requestID,
+                kind: kind,
+                maxEmptyReads: max(1, maxEmptyReads),
+                continuation: continuation,
+                tag: nil,
+                messages: []
+            )
+            ensureAutoPipelineDriverRunning()
+        }
+    }
+
+    private func ensureAutoPipelineDriverRunning() {
+        guard autoPipelineDriverTask == nil else { return }
+        autoPipelineDriverTask = Task {
+            await self.runAutoPipelineDriver()
+        }
+    }
+
+    private func runAutoPipelineDriver() async {
+        defer { autoPipelineDriverTask = nil }
+        do {
+            try await driveAutoPipeline()
+        } catch {
+            failAllAutoPipelineRequests(with: error)
+        }
+    }
+
+    private func driveAutoPipeline() async throws {
+        var emptyReads = 0
+
+        while !autoPipelineOrder.isEmpty {
+            try await sendAutoPipelineCommands()
+            guard !autoPipelineOrder.isEmpty else { break }
+
+            let messages = await client.nextMessages()
+            if messages.isEmpty {
+                try await throwConnectionClosedIfDisconnected()
+                emptyReads += 1
+                if emptyReads >= autoPipelineReadLimit() {
+                    throw SessionError.timeout
+                }
+                continue
+            }
+
+            emptyReads = 0
+            for message in messages {
+                _ = await ingestSelectedState(from: message)
+
+                if let response = message.response,
+                   case let .tagged(tag) = response.kind,
+                   let requestID = autoPipelineTagMap[tag] {
+                    appendAutoPipelineMessage(message, requestID: requestID)
+                    completeAutoPipelineRequest(requestID: requestID, response: response)
+                    continue
+                }
+
+                if let requestID = autoPipelineOrder.first {
+                    appendAutoPipelineMessage(message, requestID: requestID)
+                }
+            }
+        }
+    }
+
+    private func sendAutoPipelineCommands() async throws {
+        for requestID in autoPipelineOrder {
+            guard var request = autoPipelineRequests[requestID], request.tag == nil else { continue }
+            let command = try await client.send(request.kind)
+            request.tag = command.tag
+            autoPipelineRequests[requestID] = request
+            autoPipelineTagMap[command.tag] = requestID
+        }
+    }
+
+    private func appendAutoPipelineMessage(_ message: ImapLiteralMessage, requestID: UUID) {
+        guard var request = autoPipelineRequests[requestID] else { return }
+        request.messages.append(message)
+        autoPipelineRequests[requestID] = request
+    }
+
+    private func completeAutoPipelineRequest(requestID: UUID, response: ImapResponse) {
+        guard let request = autoPipelineRequests.removeValue(forKey: requestID) else { return }
+        if let index = autoPipelineOrder.firstIndex(of: requestID) {
+            autoPipelineOrder.remove(at: index)
+        }
+        if let tag = request.tag {
+            autoPipelineTagMap.removeValue(forKey: tag)
+        }
+        request.continuation.resume(returning: ImapPipelineResult(
+            tag: request.tag ?? "",
+            response: response,
+            messages: request.messages
+        ))
+    }
+
+    private func failAllAutoPipelineRequests(with error: Error) {
+        let pending = Array(autoPipelineRequests.values)
+        autoPipelineRequests.removeAll()
+        autoPipelineOrder.removeAll()
+        autoPipelineTagMap.removeAll()
+        for request in pending {
+            request.continuation.resume(throwing: error)
+        }
+    }
+
+    private func autoPipelineReadLimit() -> Int {
+        autoPipelineRequests.values.map(\.maxEmptyReads).max() ?? 10
+    }
+
     private func ensureAuthenticated(allowIdle: Bool = false) async throws {
         let current = ImapSessionState(await client.state)
         guard current == .authenticated || current == .selected else {
@@ -2409,6 +2708,15 @@ public actor AsyncImapSession {
     private func ensureIdleNotActive() async throws {
         if idleTag != nil {
             throw SessionError.imapError(status: .bad, text: "IDLE command is active.")
+        }
+    }
+
+    nonisolated private func validatePipelineCommand(_ kind: ImapCommandKind) throws {
+        switch kind {
+        case .idle, .authenticate:
+            throw SessionError.imapError(status: .bad, text: "Command is not pipeline-safe.")
+        default:
+            return
         }
     }
 

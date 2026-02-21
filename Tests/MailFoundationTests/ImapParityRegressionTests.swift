@@ -236,6 +236,51 @@ struct ImapParityRegressionTests {
         ])
     }
 
+    @Test("Sync IMAP pipeline preserves send order with out-of-order tagged completion")
+    func syncImapPipelineRoutesOutOfOrderTaggedResponses() throws {
+        let transport = ParitySyncTransport(incoming: [
+            Array("* OK Ready\r\n".utf8),
+            ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1"]),
+            Array("* 5 EXISTS\r\n".utf8),
+            Array("A0002 OK [READ-WRITE] SELECT completed\r\n".utf8),
+            Array("* 42 EXISTS\r\n".utf8),
+            Array("* SEARCH 101 102\r\n".utf8),
+            Array("A0004 OK NOOP completed\r\n".utf8),
+            Array("A0003 OK UID SEARCH completed\r\n".utf8)
+        ])
+
+        let session = ImapSession(transport: transport, maxReads: 16)
+        _ = try session.connect()
+        _ = try session.login(user: "user", password: "pass")
+        _ = try session.select(mailbox: "INBOX")
+
+        let results = try session.pipeline([.uidSearch("ALL"), .noop], maxReads: 16)
+
+        #expect(results.count == 2)
+        if case let .tagged(tag) = results[0].response.kind {
+            #expect(tag == "A0003")
+        } else {
+            #expect(Bool(false), "First pipeline result should be tagged")
+        }
+        if case let .tagged(tag) = results[1].response.kind {
+            #expect(tag == "A0004")
+        } else {
+            #expect(Bool(false), "Second pipeline result should be tagged")
+        }
+
+        #expect(results[0].messages.contains(where: { ImapSearchResponse.parse($0.line)?.ids == [101, 102] }))
+        #expect(results[1].messages.contains(where: { $0.line == "A0004 OK NOOP completed" }))
+        #expect(session.selectedState.messageCount == 42)
+
+        let sent = transport.written.map { String(decoding: $0, as: UTF8.self) }
+        #expect(sent == [
+            "A0001 LOGIN user pass\r\n",
+            "A0002 SELECT INBOX\r\n",
+            "A0003 UID SEARCH ALL\r\n",
+            "A0004 NOOP\r\n"
+        ])
+    }
+
     @Test("Sync IMAP ENABLE applies QRESYNC fallback when ENABLED is omitted")
     func syncImapEnableQresyncFallbackWithoutEnabledResponse() throws {
         let transport = ParitySyncTransport(incoming: [
@@ -502,6 +547,154 @@ struct ImapParityRegressionTests {
             "A0003 UID SEARCH ALL\r\n",
             "A0004 NOOP\r\n"
         ])
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    @Test("Async IMAP pipeline preserves send order with out-of-order tagged completion")
+    func asyncImapPipelineRoutesOutOfOrderTaggedResponses() async throws {
+        let transport = AsyncStreamTransport()
+        let session = AsyncImapSession(transport: transport)
+
+        let connectTask = Task { try await session.connect() }
+        await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+        _ = try await connectTask.value
+
+        let loginTask = Task { try await session.login(user: "user", password: "pass") }
+        await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1"]))
+        _ = try await loginTask.value
+
+        let selectTask = Task { try await session.select(mailbox: "INBOX") }
+        await transport.yieldIncoming(Array("* 5 EXISTS\r\n".utf8))
+        await transport.yieldIncoming(Array("A0002 OK [READ-WRITE] SELECT completed\r\n".utf8))
+        _ = try await selectTask.value
+
+        let pipelineTask = Task {
+            try await session.pipeline([.uidSearch("ALL"), .noop], maxEmptyReads: 1_000)
+        }
+        await transport.yieldIncoming(Array("* 42 EXISTS\r\n".utf8))
+        await transport.yieldIncoming(Array("* SEARCH 101 102\r\n".utf8))
+        await transport.yieldIncoming(Array("A0004 OK NOOP completed\r\n".utf8))
+        await transport.yieldIncoming(Array("A0003 OK UID SEARCH completed\r\n".utf8))
+
+        let results = try await pipelineTask.value
+
+        #expect(results.count == 2)
+        if case let .tagged(tag) = results[0].response.kind {
+            #expect(tag == "A0003")
+        } else {
+            #expect(Bool(false), "First pipeline result should be tagged")
+        }
+        if case let .tagged(tag) = results[1].response.kind {
+            #expect(tag == "A0004")
+        } else {
+            #expect(Bool(false), "Second pipeline result should be tagged")
+        }
+
+        #expect(results[0].messages.contains(where: { ImapSearchResponse.parse($0.line)?.ids == [101, 102] }))
+        #expect(results[1].messages.contains(where: { $0.line == "A0004 OK NOOP completed" }))
+        #expect(await session.selectedState.messageCount == 42)
+
+        let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+        #expect(sent == [
+            "A0001 LOGIN user pass\r\n",
+            "A0002 SELECT INBOX\r\n",
+            "A0003 UID SEARCH ALL\r\n",
+            "A0004 NOOP\r\n"
+        ])
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    @Test("Async IMAP execute auto-joins concurrent pipeline-safe commands")
+    func asyncImapExecuteAutoPipelinesConcurrentCommands() async throws {
+        let transport = AsyncStreamTransport()
+        let session = AsyncImapSession(transport: transport)
+
+        let connectTask = Task { try await session.connect() }
+        await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+        _ = try await connectTask.value
+
+        let loginTask = Task { try await session.login(user: "user", password: "pass") }
+        await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1"]))
+        _ = try await loginTask.value
+
+        let selectTask = Task { try await session.select(mailbox: "INBOX") }
+        await transport.yieldIncoming(Array("* 5 EXISTS\r\n".utf8))
+        await transport.yieldIncoming(Array("A0002 OK [READ-WRITE] SELECT completed\r\n".utf8))
+        _ = try await selectTask.value
+
+        let searchTask = Task {
+            try await session.execute(.uidSearch("ALL"), maxEmptyReads: 1_000)
+        }
+        let noopTask = Task {
+            try await session.execute(.noop, maxEmptyReads: 1_000)
+        }
+
+        await transport.yieldIncoming(Array("* 42 EXISTS\r\n".utf8))
+        await transport.yieldIncoming(Array("* SEARCH 101 102\r\n".utf8))
+        await transport.yieldIncoming(Array("A0004 OK NOOP completed\r\n".utf8))
+        await transport.yieldIncoming(Array("A0003 OK UID SEARCH completed\r\n".utf8))
+
+        let searchResult = try await searchTask.value
+        let noopResult = try await noopTask.value
+
+        #expect(searchResult.tag == "A0003")
+        #expect(noopResult.tag == "A0004")
+        #expect(searchResult.messages.contains(where: { ImapSearchResponse.parse($0.line)?.ids == [101, 102] }))
+        #expect(noopResult.messages.contains(where: { $0.line == "A0004 OK NOOP completed" }))
+        #expect(await session.selectedState.messageCount == 42)
+
+        let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+        #expect(sent == [
+            "A0001 LOGIN user pass\r\n",
+            "A0002 SELECT INBOX\r\n",
+            "A0003 UID SEARCH ALL\r\n",
+            "A0004 NOOP\r\n"
+        ])
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    @Test("Async IMAP waitForPipelineDrained waits for in-flight execute pipeline")
+    func asyncImapWaitForPipelineDrainedWaitsForExecuteCompletion() async throws {
+        let transport = AsyncStreamTransport()
+        let session = AsyncImapSession(transport: transport)
+
+        let connectTask = Task { try await session.connect() }
+        await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+        _ = try await connectTask.value
+
+        let loginTask = Task { try await session.login(user: "user", password: "pass") }
+        await transport.yieldIncoming(ImapTestFixtures.loginOk(capabilities: ["IMAP4rev1"]))
+        _ = try await loginTask.value
+
+        let selectTask = Task { try await session.select(mailbox: "INBOX") }
+        await transport.yieldIncoming(Array("* 5 EXISTS\r\n".utf8))
+        await transport.yieldIncoming(Array("A0002 OK [READ-WRITE] SELECT completed\r\n".utf8))
+        _ = try await selectTask.value
+
+        let searchTask = Task {
+            try await session.execute(.uidSearch("ALL"), maxEmptyReads: 1_000)
+        }
+        await transport.yieldIncoming(Array("* 42 EXISTS\r\n".utf8))
+        await transport.yieldIncoming(Array("* SEARCH 101 102\r\n".utf8))
+
+        do {
+            try await withTimeout(milliseconds: 20) {
+                try await session.waitForPipelineDrained()
+            }
+            #expect(Bool(false), "waitForPipelineDrained should wait while execute pipeline is still pending")
+        } catch let error as TimeoutError {
+            if case .timedOut = error {
+                // Expected: pipeline is still pending until tagged completion.
+            } else {
+                #expect(Bool(false), "Unexpected TimeoutError: \(error)")
+            }
+        }
+
+        await transport.yieldIncoming(Array("A0003 OK UID SEARCH completed\r\n".utf8))
+        let searchResult = try await searchTask.value
+        #expect(searchResult.tag == "A0003")
+
+        try await session.waitForPipelineDrained()
     }
 
     @available(macOS 10.15, iOS 13.0, *)

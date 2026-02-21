@@ -933,6 +933,77 @@ public final class ImapSession {
         throw timeoutOrConnectionClosed()
     }
 
+    /// Sends multiple commands without waiting between writes, then routes responses per command tag.
+    ///
+    /// The returned array preserves command send order.
+    /// Untagged responses are routed to the oldest command that is still pending.
+    ///
+    /// - Important: Avoid commands that require explicit continuation handshakes (for example `IDLE`/`DONE`).
+    public func pipeline(_ kinds: [ImapCommandKind], maxReads: Int? = nil) throws -> [ImapPipelineResult] {
+        try ensureIdleNotActive()
+        guard !kinds.isEmpty else { return [] }
+
+        let limit = maxReads ?? self.maxReads
+        var tagsInOrder: [String] = []
+        var pendingTags: Set<String> = []
+        var messagesByTag: [String: [ImapLiteralMessage]] = [:]
+        var responseByTag: [String: ImapResponse] = [:]
+
+        for kind in kinds {
+            try validatePipelineCommand(kind)
+            let command = client.send(kind)
+            try ensureWrite()
+            tagsInOrder.append(command.tag)
+            pendingTags.insert(command.tag)
+            messagesByTag[command.tag] = []
+        }
+
+        var reads = 0
+        let deadline = makeDeadline()
+        while !pendingTags.isEmpty && canContinueWaiting(reads: reads, deadline: deadline, maxReads: limit) {
+            let messages = client.receiveWithLiterals()
+            if messages.isEmpty {
+                try recordEmptyReadOrThrowConnectionClosed(&reads)
+                continue
+            }
+
+            for message in messages {
+                _ = ingestSelectedState(from: message)
+
+                if let response = message.response,
+                   case let .tagged(tag) = response.kind,
+                   pendingTags.contains(tag) {
+                    messagesByTag[tag, default: []].append(message)
+                    responseByTag[tag] = response
+                    pendingTags.remove(tag)
+                    continue
+                }
+
+                if let ownerTag = tagsInOrder.first(where: { pendingTags.contains($0) }) {
+                    messagesByTag[ownerTag, default: []].append(message)
+                }
+            }
+        }
+
+        if !pendingTags.isEmpty {
+            throw timeoutOrConnectionClosed()
+        }
+
+        var results: [ImapPipelineResult] = []
+        results.reserveCapacity(tagsInOrder.count)
+        for tag in tagsInOrder {
+            guard let response = responseByTag[tag] else {
+                throw SessionError.timeout
+            }
+            results.append(ImapPipelineResult(
+                tag: tag,
+                response: response,
+                messages: messagesByTag[tag] ?? []
+            ))
+        }
+        return results
+    }
+
     public func search(_ criteria: String) throws -> ImapSearchResponse {
         try ensureSelected()
         let command = client.send(.search(criteria))
@@ -1811,6 +1882,15 @@ public final class ImapSession {
     private func ensureWrite() throws {
         if !client.lastWriteSucceeded {
             throw SessionError.transportWriteFailed
+        }
+    }
+
+    private func validatePipelineCommand(_ kind: ImapCommandKind) throws {
+        switch kind {
+        case .idle, .authenticate:
+            throw SessionError.imapError(status: .bad, text: "Command is not pipeline-safe.")
+        default:
+            return
         }
     }
 
