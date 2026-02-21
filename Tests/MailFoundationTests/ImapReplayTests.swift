@@ -63,6 +63,24 @@ func imapReplayDovecotSpecialUseList() throws {
     #expect(transport.failures.isEmpty)
 }
 
+@Test("IMAP replay Proton special-use fallback LIST")
+func imapReplayProtonSpecialUseFallbackList() throws {
+    let transport = ImapReplayTransport(steps: [
+        .greeting("dovecot/dovecot.greeting.txt"),
+        .command("A0001 LOGIN username password\r\n", fixture: "proton/authenticate-capabilities.txt"),
+        .command("A0002 NAMESPACE\r\n", fixture: "dovecot/dovecot.namespace.txt"),
+        .command("A0003 LIST \"\" \"%%\"\r\n", fixture: "proton/proton-list-special-use.txt")
+    ])
+
+    let session = ImapSession(transport: transport, maxReads: 5)
+    _ = try session.connect()
+    _ = try session.login(user: "username", password: "password")
+
+    #expect(session.specialUseMailboxes.contains { $0.specialUse == .sent })
+    #expect(session.specialUseMailboxes.contains { $0.specialUse == .trash })
+    #expect(transport.failures.isEmpty)
+}
+
 @Test("IMAP replay LIST with literal mailbox name")
 func imapReplayListWithLiteralMailbox() throws {
     let transport = ImapReplayTransport(steps: [

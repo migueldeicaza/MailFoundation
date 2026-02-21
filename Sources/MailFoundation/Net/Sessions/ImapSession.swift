@@ -1775,18 +1775,42 @@ public final class ImapSession {
             namespaces = try? namespace()
         }
         if let caps = client.capabilities {
-            if caps.supports("SPECIAL-USE") {
-                if let list = try? listSpecialUse(reference: "", mailbox: "*") {
-                    specialUseMailboxes = list.filter { $0.specialUse != nil }
-                } else if let list = try? list(reference: "", mailbox: "*") {
-                    specialUseMailboxes = list.filter { $0.specialUse != nil }
-                }
-            } else if caps.supports("XLIST") {
-                if let list = try? xlist(reference: "", mailbox: "*") {
-                    specialUseMailboxes = list.filter { $0.specialUse != nil }
-                }
-            }
+            specialUseMailboxes = discoverSpecialUseMailboxes(capabilities: caps)
         }
+    }
+
+    private func discoverSpecialUseMailboxes(capabilities: ImapCapabilities) -> [ImapMailbox] {
+        if capabilities.supports("SPECIAL-USE") {
+            if isProtonSpecialUseQuirk(capabilities) {
+                if let list = try? list(reference: "", mailbox: "%%") {
+                    return list.filter { $0.specialUse != nil }
+                }
+                if let list = try? list(reference: "", mailbox: "*") {
+                    return list.filter { $0.specialUse != nil }
+                }
+                return []
+            }
+
+            if let list = try? listSpecialUse(reference: "", mailbox: "*") {
+                return list.filter { $0.specialUse != nil }
+            }
+            if let list = try? list(reference: "", mailbox: "*") {
+                return list.filter { $0.specialUse != nil }
+            }
+            return []
+        }
+
+        if capabilities.supports("XLIST"),
+           let list = try? xlist(reference: "", mailbox: "*") {
+            return list.filter { $0.specialUse != nil }
+        }
+
+        return []
+    }
+
+    private func isProtonSpecialUseQuirk(_ capabilities: ImapCapabilities) -> Bool {
+        // MailKit identifies Proton quirks via XSTOP and avoids LIST (SPECIAL-USE) on those servers.
+        capabilities.supports("XSTOP")
     }
 
     private func ensureAuthenticated(allowIdle: Bool = false) throws {

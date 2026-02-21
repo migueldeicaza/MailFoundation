@@ -262,18 +262,42 @@ public actor AsyncImapSession {
             namespaces = try? await namespace()
         }
         if let caps = await client.capabilities {
-            if caps.supports("SPECIAL-USE") {
-                if let list = try? await listSpecialUse(reference: "", mailbox: "*") {
-                    specialUseMailboxes = list.filter { $0.specialUse != nil }
-                } else if let list = try? await list(reference: "", mailbox: "*") {
-                    specialUseMailboxes = list.filter { $0.specialUse != nil }
-                }
-            } else if caps.supports("XLIST") {
-                if let list = try? await xlist(reference: "", mailbox: "*") {
-                    specialUseMailboxes = list.filter { $0.specialUse != nil }
-                }
-            }
+            specialUseMailboxes = await discoverSpecialUseMailboxes(capabilities: caps)
         }
+    }
+
+    private func discoverSpecialUseMailboxes(capabilities: ImapCapabilities) async -> [ImapMailbox] {
+        if capabilities.supports("SPECIAL-USE") {
+            if isProtonSpecialUseQuirk(capabilities) {
+                if let list = try? await list(reference: "", mailbox: "%%") {
+                    return list.filter { $0.specialUse != nil }
+                }
+                if let list = try? await list(reference: "", mailbox: "*") {
+                    return list.filter { $0.specialUse != nil }
+                }
+                return []
+            }
+
+            if let list = try? await listSpecialUse(reference: "", mailbox: "*") {
+                return list.filter { $0.specialUse != nil }
+            }
+            if let list = try? await list(reference: "", mailbox: "*") {
+                return list.filter { $0.specialUse != nil }
+            }
+            return []
+        }
+
+        if capabilities.supports("XLIST"),
+           let list = try? await xlist(reference: "", mailbox: "*") {
+            return list.filter { $0.specialUse != nil }
+        }
+
+        return []
+    }
+
+    private nonisolated func isProtonSpecialUseQuirk(_ capabilities: ImapCapabilities) -> Bool {
+        // MailKit identifies Proton quirks via XSTOP and avoids LIST (SPECIAL-USE) on those servers.
+        capabilities.supports("XSTOP")
     }
 
     public func enable(_ capabilities: [String], maxEmptyReads: Int = 10) async throws -> [String] {

@@ -92,6 +92,32 @@ func asyncImapSessionLoginFailure() async throws {
 }
 
 @available(macOS 10.15, iOS 13.0, *)
+@Test("Async IMAP session uses Proton special-use fallback LIST")
+func asyncImapSessionProtonSpecialUseFallbackList() async throws {
+    let transport = AsyncStreamTransport()
+    let session = AsyncImapSession(transport: transport)
+
+    let connectTask = Task { try await session.connect() }
+    await transport.yieldIncoming(Array("* OK Ready\r\n".utf8))
+    _ = try await connectTask.value
+
+    let loginTask = Task { try await session.login(user: "user", password: "pass") }
+    await transport.yieldIncoming(Array("A0001 OK [CAPABILITY IMAP4rev1 NAMESPACE SPECIAL-USE XSTOP] LOGIN completed\r\n".utf8))
+    await transport.yieldIncoming(Array("* NAMESPACE ((\"\" \"/\")) NIL NIL\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK NAMESPACE completed\r\n".utf8))
+    await transport.yieldIncoming(Array("* LIST (\\HasNoChildren \\Sent) \"/\" \"Sent\"\r\n".utf8))
+    await transport.yieldIncoming(Array("* LIST (\\HasNoChildren \\Trash) \"/\" \"Trash\"\r\n".utf8))
+    await transport.yieldIncoming(Array("A0003 OK LIST completed\r\n".utf8))
+    _ = try await loginTask.value
+
+    let sent = await transport.sentSnapshot().map { String(decoding: $0, as: UTF8.self) }
+    #expect(sent.contains("A0003 LIST \"\" \"%%\"\r\n"))
+    #expect(sent.contains(where: { $0.contains("LIST (SPECIAL-USE)") }) == false)
+    #expect(await session.specialUseMailboxes.contains { $0.specialUse == .sent })
+    #expect(await session.specialUseMailboxes.contains { $0.specialUse == .trash })
+}
+
+@available(macOS 10.15, iOS 13.0, *)
 @Test("Async IMAP session capability command")
 func asyncImapSessionCapability() async throws {
     let transport = AsyncStreamTransport()
