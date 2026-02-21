@@ -94,6 +94,7 @@ public final class ImapClient {
     private var literalDecoder = ImapLiteralDecoder()
     private var transport: Transport?
     private var pending: [String: PendingCommand] = [:]
+    private let emptyReadDelaySeconds: TimeInterval = 0.05
 
     /// The connection state of the IMAP client.
     public enum State: Sendable {
@@ -342,7 +343,10 @@ public final class ImapClient {
     public func receive() -> [ImapResponse] {
         guard let transport else { return [] }
         let bytes = transport.readAvailable(maxLength: 4096)
-        guard !bytes.isEmpty else { return [] }
+        guard !bytes.isEmpty else {
+            Thread.sleep(forTimeInterval: emptyReadDelaySeconds)
+            return []
+        }
         return handleIncoming(bytes)
     }
 
@@ -352,7 +356,10 @@ public final class ImapClient {
     public func receiveWithLiterals() -> [ImapLiteralMessage] {
         guard let transport else { return [] }
         let bytes = transport.readAvailable(maxLength: 4096)
-        guard !bytes.isEmpty else { return [] }
+        guard !bytes.isEmpty else {
+            Thread.sleep(forTimeInterval: emptyReadDelaySeconds)
+            return []
+        }
         return handleIncomingWithLiterals(bytes)
     }
 
@@ -362,7 +369,7 @@ public final class ImapClient {
     ///   - tag: The command tag to wait for.
     ///   - maxReads: Maximum number of read attempts.
     /// - Returns: The tagged response, or `nil` if not received within maxReads attempts.
-    public func waitForTagged(_ tag: String, maxReads: Int = 10) -> ImapResponse? {
+    public func waitForTagged(_ tag: String, maxReads: Int = 2400) -> ImapResponse? {
         var reads = 0
         while reads < maxReads {
             let messages = receiveWithLiterals()
@@ -386,7 +393,7 @@ public final class ImapClient {
     ///
     /// - Parameter maxReads: Maximum number of read attempts.
     /// - Returns: The continuation response, or `nil` if not received.
-    public func waitForContinuation(maxReads: Int = 10) -> ImapResponse? {
+    public func waitForContinuation(maxReads: Int = 2400) -> ImapResponse? {
         var reads = 0
         while reads < maxReads {
             let messages = receiveWithLiterals()
@@ -411,7 +418,7 @@ public final class ImapClient {
     ///   - kind: The command kind to execute.
     ///   - maxReads: Maximum number of read attempts.
     /// - Returns: The tagged response, or `nil` if not received.
-    public func execute(_ kind: ImapCommandKind, maxReads: Int = 10) -> ImapResponse? {
+    public func execute(_ kind: ImapCommandKind, maxReads: Int = 2400) -> ImapResponse? {
         let command = send(kind)
         return waitForTagged(command.tag, maxReads: maxReads)
     }

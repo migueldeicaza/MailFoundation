@@ -2652,12 +2652,15 @@ func asyncImapSessionStartTls() async throws {
 
     let startTlsTask = Task { try await session.startTls(validateCertificate: true) }
     await transport.yieldIncoming(Array("A0001 OK Begin TLS\r\n".utf8))
+    await transport.yieldIncoming(Array("* CAPABILITY IMAP4rev1 IDLE\r\n".utf8))
+    await transport.yieldIncoming(Array("A0002 OK CAPABILITY\r\n".utf8))
     let response = try await startTlsTask.value
     #expect(response.isOk == true)
     #expect(await transport.didStartTls() == true)
     #expect(await transport.lastStartTlsValidation() == true)
     let sent = await transport.sentSnapshot()
     #expect(String(decoding: sent.first ?? [], as: UTF8.self) == "A0001 STARTTLS\r\n")
+    #expect(String(decoding: sent.last ?? [], as: UTF8.self) == "A0002 CAPABILITY\r\n")
 }
 
 @available(macOS 10.15, iOS 13.0, *)

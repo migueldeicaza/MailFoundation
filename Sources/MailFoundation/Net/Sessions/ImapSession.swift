@@ -42,7 +42,7 @@ public final class ImapSession {
         client.capabilities
     }
 
-    public init(transport: Transport, protocolLogger: ProtocolLoggerType = NullProtocolLogger(), maxReads: Int = 10) {
+    public init(transport: Transport, protocolLogger: ProtocolLoggerType = NullProtocolLogger(), maxReads: Int = 2400) {
         self.transport = transport
         self.client = ImapClient(protocolLogger: protocolLogger)
         self.maxReads = maxReads
@@ -71,6 +71,7 @@ public final class ImapSession {
     }
 
     public func capability() throws -> ImapResponse {
+        try ensureIdleNotActive()
         let command = client.send(.capability)
         try ensureWrite()
         var reads = 0
@@ -215,6 +216,7 @@ public final class ImapSession {
     }
 
     public func noop() throws -> ImapResponse {
+        try ensureIdleNotActive()
         let command = client.send(.noop)
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
@@ -1031,6 +1033,7 @@ public final class ImapSession {
     }
 
     public func id(_ parameters: [String: String?]? = nil) throws -> ImapIdResponse? {
+        try ensureIdleNotActive()
         let command = client.send(.id(ImapId.buildArguments(parameters)))
         try ensureWrite()
         var reads = 0
@@ -1544,9 +1547,11 @@ public final class ImapSession {
     }
 
     public func startTls(validateCertificate: Bool = true) throws -> ImapResponse {
+        try ensureIdleNotActive()
         guard let tlsTransport = transport as? StartTlsTransport else {
             throw SessionError.startTlsNotSupported
         }
+        let initialCapabilitiesVersion = client.capabilitiesVersion
         let command = client.send(.starttls)
         try ensureWrite()
         guard let response = client.waitForTagged(command.tag, maxReads: maxReads) else {
@@ -1556,6 +1561,9 @@ public final class ImapSession {
             throw SessionError.imapError(status: response.status, text: response.text)
         }
         tlsTransport.startTLS(validateCertificate: validateCertificate)
+        if client.capabilitiesVersion == initialCapabilitiesVersion {
+            _ = try capability()
+        }
         return response
     }
 
@@ -1616,7 +1624,7 @@ public final class ImapSession {
     }
 
     public func stopIdle() throws {
-        try ensureSelected()
+        try ensureSelected(allowIdle: true)
         guard let idleTag else {
             throw SessionError.imapError(status: .bad, text: "IDLE not active.")
         }
@@ -1698,6 +1706,8 @@ public final class ImapSession {
             if caps.supports("SPECIAL-USE") {
                 if let list = try? listSpecialUse(reference: "", mailbox: "*") {
                     specialUseMailboxes = list.filter { $0.specialUse != nil }
+                } else if let list = try? list(reference: "", mailbox: "*") {
+                    specialUseMailboxes = list.filter { $0.specialUse != nil }
                 }
             } else if caps.supports("XLIST") {
                 if let list = try? xlist(reference: "", mailbox: "*") {
@@ -1707,17 +1717,29 @@ public final class ImapSession {
         }
     }
 
-    private func ensureAuthenticated() throws {
+    private func ensureAuthenticated(allowIdle: Bool = false) throws {
         let current = ImapSessionState(client.state)
         guard current == .authenticated || current == .selected else {
             throw SessionError.invalidImapState(expected: .authenticated, actual: current)
         }
+        if !allowIdle {
+            try ensureIdleNotActive()
+        }
     }
 
-    private func ensureSelected() throws {
+    private func ensureSelected(allowIdle: Bool = false) throws {
         let current = ImapSessionState(client.state)
         guard current == .selected else {
             throw SessionError.invalidImapState(expected: .selected, actual: current)
+        }
+        if !allowIdle {
+            try ensureIdleNotActive()
+        }
+    }
+
+    private func ensureIdleNotActive() throws {
+        if idleTag != nil {
+            throw SessionError.imapError(status: .bad, text: "IDLE command is active.")
         }
     }
 

@@ -33,11 +33,29 @@
 /// Always wraps the string in double quotes and escapes backslashes and quotes.
 private func imapQuote(_ value: String) -> String {
     var result = "\""
-    for ch in value {
-        if ch == "\\" || ch == "\"" {
+    for scalar in value.unicodeScalars {
+        if scalar == "\\" || scalar == "\"" {
             result.append("\\")
+            result.unicodeScalars.append(scalar)
+            continue
         }
-        result.append(ch)
+
+        if scalar == "\r" {
+            result.append("\\r")
+            continue
+        }
+
+        if scalar == "\n" {
+            result.append("\\n")
+            continue
+        }
+
+        if scalar == "\u{0}" {
+            result.append("\\0")
+            continue
+        }
+
+        result.unicodeScalars.append(scalar)
     }
     result.append("\"")
     return result
@@ -134,7 +152,11 @@ public enum ImapCommandKind: Sendable {
         case .noop:
             return ImapCommand(tag: tag, name: "NOOP")
         case let .login(user, password):
-            return ImapCommand(tag: tag, name: "LOGIN", arguments: "\(user) \(password)")
+            return ImapCommand(
+                tag: tag,
+                name: "LOGIN",
+                arguments: "\(imapAString(user)) \(imapAString(password))"
+            )
         case let .authenticate(mechanism, initialResponse):
             if let response = initialResponse {
                 return ImapCommand(tag: tag, name: "AUTHENTICATE", arguments: "\(mechanism) \(response)")

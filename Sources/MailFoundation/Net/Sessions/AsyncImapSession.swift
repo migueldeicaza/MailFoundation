@@ -104,7 +104,8 @@ public actor AsyncImapSession {
     public func connect() async throws -> ImapResponse? {
         try await withSessionTimeout {
             try await self.client.start()
-            return await self.waitForGreeting()
+            let greeting = await self.waitForGreeting()
+            return try self.validateGreeting(greeting)
         }
     }
 
@@ -121,7 +122,8 @@ public actor AsyncImapSession {
     public func connectSecure(validateCertificate: Bool = true) async throws -> ImapResponse? {
         return try await withSessionTimeout {
             try await self.client.startSecure(validateCertificate: validateCertificate)
-            return await self.waitForGreeting()
+            let greeting = await self.waitForGreeting()
+            return try self.validateGreeting(greeting)
         }
     }
 
@@ -136,7 +138,8 @@ public actor AsyncImapSession {
     }
 
     public func capability() async throws -> ImapResponse? {
-        try await withSessionTimeout {
+        try await ensureIdleNotActive()
+        return try await withSessionTimeout {
             try await self.client.capability()
         }
     }
@@ -222,7 +225,8 @@ public actor AsyncImapSession {
     }
 
     public func noop() async throws -> ImapResponse? {
-        try await withSessionTimeout {
+        try await ensureIdleNotActive()
+        return try await withSessionTimeout {
             let command = try await self.client.send(.noop)
             var emptyReads = 0
             while emptyReads < 10 {
@@ -260,6 +264,8 @@ public actor AsyncImapSession {
         if let caps = await client.capabilities {
             if caps.supports("SPECIAL-USE") {
                 if let list = try? await listSpecialUse(reference: "", mailbox: "*") {
+                    specialUseMailboxes = list.filter { $0.specialUse != nil }
+                } else if let list = try? await list(reference: "", mailbox: "*") {
                     specialUseMailboxes = list.filter { $0.specialUse != nil }
                 }
             } else if caps.supports("XLIST") {
@@ -1522,6 +1528,7 @@ public actor AsyncImapSession {
     }
 
     public func id(_ parameters: [String: String?]? = nil, maxEmptyReads: Int = 10) async throws -> ImapIdResponse? {
+        try await ensureIdleNotActive()
         return try await withSessionTimeout {
             let command = try await self.client.send(.id(ImapId.buildArguments(parameters)))
             var emptyReads = 0
@@ -2063,9 +2070,11 @@ public actor AsyncImapSession {
     }
 
     public func startTls(validateCertificate: Bool = true, maxEmptyReads: Int = 10) async throws -> ImapResponse {
+        try await ensureIdleNotActive()
         guard let tlsTransport = transport as? AsyncStartTlsTransport else {
             throw SessionError.startTlsNotSupported
         }
+        let initialCapabilitiesVersion = await client.capabilitiesVersion
         return try await withSessionTimeout {
             let command = try await self.client.send(.starttls)
             var emptyReads = 0
@@ -2083,6 +2092,9 @@ public actor AsyncImapSession {
                             throw SessionError.imapError(status: response.status, text: response.text)
                         }
                         try await tlsTransport.startTLS(validateCertificate: validateCertificate)
+                        if await self.client.capabilitiesVersion == initialCapabilitiesVersion {
+                            _ = try await self.client.capability()
+                        }
                         return response
                     }
                 }
@@ -2127,7 +2139,7 @@ public actor AsyncImapSession {
     }
 
     public func readIdleEvents(maxEmptyReads: Int = 10) async throws -> [ImapIdleEvent] {
-        try await ensureSelected()
+        try await ensureSelected(allowIdle: true)
         return try await withSessionTimeout {
             var emptyReads = 0
             var events: [ImapIdleEvent] = []
@@ -2154,7 +2166,7 @@ public actor AsyncImapSession {
     }
 
     public func stopIdle() async throws {
-        try await ensureSelected()
+        try await ensureSelected(allowIdle: true)
         guard let idleTag else {
             throw SessionError.imapError(status: .bad, text: "IDLE not active.")
         }
@@ -2190,7 +2202,7 @@ public actor AsyncImapSession {
     }
 
     public func readQresyncEvents(validity: UInt32 = 0, maxEmptyReads: Int = 10) async throws -> [ImapQresyncEvent] {
-        try await ensureSelected()
+        try await ensureSelected(allowIdle: true)
         return try await withSessionTimeout {
             var emptyReads = 0
             var events: [ImapQresyncEvent] = []
@@ -2215,17 +2227,29 @@ public actor AsyncImapSession {
         }
     }
 
-    private func ensureAuthenticated() async throws {
+    private func ensureAuthenticated(allowIdle: Bool = false) async throws {
         let current = ImapSessionState(await client.state)
         guard current == .authenticated || current == .selected else {
             throw SessionError.invalidImapState(expected: .authenticated, actual: current)
         }
+        if !allowIdle {
+            try await ensureIdleNotActive()
+        }
     }
 
-    private func ensureSelected() async throws {
+    private func ensureSelected(allowIdle: Bool = false) async throws {
         let current = ImapSessionState(await client.state)
         guard current == .selected else {
             throw SessionError.invalidImapState(expected: .selected, actual: current)
+        }
+        if !allowIdle {
+            try await ensureIdleNotActive()
+        }
+    }
+
+    private func ensureIdleNotActive() async throws {
+        if idleTag != nil {
+            throw SessionError.imapError(status: .bad, text: "IDLE command is active.")
         }
     }
 
@@ -2305,6 +2329,16 @@ public actor AsyncImapSession {
                 }
             }
         }
+    }
+
+    private nonisolated func validateGreeting(_ greeting: ImapResponse?) throws -> ImapResponse {
+        guard let greeting else {
+            throw SessionError.timeout
+        }
+        if greeting.status == .ok || greeting.status == .preauth {
+            return greeting
+        }
+        throw SessionError.imapError(status: greeting.status, text: greeting.text)
     }
 }
 

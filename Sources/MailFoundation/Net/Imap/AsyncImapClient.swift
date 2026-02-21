@@ -285,9 +285,9 @@ public actor AsyncImapClient {
         let supportsSaslIr = capabilities?.supports("SASL-IR") ?? false
         let initialResponse = supportsSaslIr ? auth.initialResponse : nil
         var pendingInitialResponse = supportsSaslIr ? nil : auth.initialResponse
-        let command = try await send(.authenticate(auth.mechanism, initialResponse: initialResponse))
         detector.isAuthenticating = true
         defer { detector.isAuthenticating = false }
+        let command = try await send(.authenticate(auth.mechanism, initialResponse: initialResponse))
 
         // Handle challenge-response if needed
         if auth.responder != nil || pendingInitialResponse != nil {
@@ -309,7 +309,7 @@ public actor AsyncImapClient {
                         }
                         // Check for continuation request
                         if case .continuation = response.kind {
-                            let challenge = response.text ?? ""
+                            let challenge = response.text
                             let responseData: String
                             if let initial = pendingInitialResponse {
                                 responseData = initial
